@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Travian Klasik — Offline</title>
+<style>
+/* ============ mobile-first ============ */
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font:12px/1.45 Verdana,Arial,sans-serif;background:linear-gradient(#3a431a,#2c3312);min-height:100vh;color:#1f1f0f}
+a{color:#446600;text-decoration:none;font-weight:bold;cursor:pointer}
+a:hover{text-decoration:underline}
+#wrap{width:100%;max-width:1000px;margin:0 auto;background:#f8f4e8;min-height:100vh}
+/* ===== header ===== */
+#hdr{background:linear-gradient(#6c9c3c,#3f6420);border-bottom:3px solid #243d10;padding:6px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+#hdr h1{font-size:15px;color:#fff;text-shadow:1px 2px 2px #1d3009;font-family:Georgia,serif;letter-spacing:1px}
+#hdr h1 small{font-size:9px;color:#d8e8b8;display:block;letter-spacing:0;font-family:Verdana}
+#hdr .hright{text-align:right;color:#e8f0d0;font-size:9px}
+#nav{background:#e8e0c0;border-bottom:1px solid #a89e72;display:flex;gap:4px;padding:6px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+#nav .tab{flex:0 0 auto;padding:8px 12px;background:linear-gradient(#fdf9ea,#ded4a8);border:1px solid #9a8f60;border-radius:4px;color:#3d3a20;font-weight:bold;cursor:pointer;font-size:12px;white-space:nowrap}
+#nav .tab.act{background:linear-gradient(#9cc05c,#6f9434);color:#fff;border-color:#46621c;text-shadow:0 1px 1px #3c5418}
+#nav .tab .badge{background:#c33;color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-left:3px}
+#subbar{background:#f3edd7;border-bottom:1px solid #c9bf96;padding:5px 8px;display:flex;align-items:center;gap:8px 14px;min-height:24px;flex-wrap:wrap;font-size:11px}
+#subbar select{font-size:13px;max-width:170px}
+.atkwarn{color:#b00;font-weight:bold;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.35}}
+/* ===== resource bar ===== */
+#resbar{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;padding:6px 8px;background:linear-gradient(#fffceb,#f1e9c8);border-bottom:1px solid #b8ae82}
+.rbox{background:#fff;border:1px solid #c2b988;border-radius:3px;padding:4px 7px;display:flex;justify-content:space-between;align-items:center;gap:4px}
+.rbox b.full{color:#b00}
+.rbox.upk{grid-column:span 2;justify-content:center}
+.rcap{font-size:9px;color:#887}
+/* ===== layout ===== */
+#content{padding:8px;min-height:400px}
+.cols{display:flex;flex-direction:column;gap:10px}
+.colL{flex:1;min-width:0}
+.colR{width:100%;flex-shrink:0}
+.box{background:#fdfaf0;border:1px solid #c9bf96;border-radius:4px;margin-bottom:10px}
+.box h3{background:linear-gradient(#ece4c4,#ddd2a4);border-bottom:1px solid #c9bf96;padding:6px 8px;font-size:12px;color:#41401f;border-radius:3px 3px 0 0}
+.box .bd{padding:8px}
+table.t{width:100%;border-collapse:collapse}
+table.t th{background:#ece4c4;border:1px solid #cfc69c;padding:4px 5px;font-size:11px;text-align:left}
+table.t td{border:1px solid #ddd5ad;padding:4px 5px;background:#fffdf4}
+table.t tr.hl td{background:#e4f0c8;font-weight:bold}
+.scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.muted{color:#998}
+.red{color:#b00}.green{color:#262}
+.ctr{text-align:center}.rt{text-align:right}
+button,.btn{font:bold 13px Verdana;background:linear-gradient(#9cc05c,#6f9434);color:#fff;border:1px solid #46621c;border-radius:4px;padding:8px 14px;cursor:pointer;text-shadow:0 1px 1px #3c5418;touch-action:manipulation}
+button:hover,.btn:hover{background:linear-gradient(#a8cc68,#7ba040)}
+button:disabled{background:#bbb;border-color:#999;cursor:default;text-shadow:none;color:#eee}
+button.sec{background:linear-gradient(#e8e0c0,#cfc394);color:#443;border-color:#9a8f60;text-shadow:none}
+button.danger{background:linear-gradient(#cc6655,#a63a2a);border-color:#732518}
+input[type=text],input[type=number],select,textarea{font:16px Verdana;border:1px solid #aaa078;border-radius:3px;padding:6px;background:#fff}
+input[type=number]{width:74px}
+.cost{display:inline-flex;gap:8px;flex-wrap:wrap}
+.cost span{white-space:nowrap}
+.cost .lack{color:#b00;font-weight:bold}
+/* ===== grid desa (ladang & bangunan) ===== */
+.fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.tile{border:2px solid rgba(70,90,30,.5);border-radius:8px;padding:9px 4px 7px;text-align:center;cursor:pointer;min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;touch-action:manipulation}
+.tile:hover{border-color:#fff;box-shadow:0 0 7px rgba(255,255,200,.8)}
+.tile:active{transform:scale(.97)}
+.tile .picon{font-size:25px;line-height:1}
+.tile .lvl{font-size:11px;font-weight:bold;background:rgba(255,255,250,.92);border-radius:8px;padding:0 7px;border:1px solid #786;color:#221}
+.tile.busy .lvl{background:#ffd76e;border-color:#a80}
+.tile .tnm{font-size:9px;line-height:1.2}
+.tile.fld .tnm{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.65);font-weight:bold}
+.tile.f-wood{background:radial-gradient(#4a8030,#2d5519)}
+.tile.f-clay{background:radial-gradient(#d08848,#a8602a)}
+.tile.f-iron{background:radial-gradient(#9aa0a8,#646c78)}
+.tile.f-crop{background:radial-gradient(#e0c44c,#b89c20)}
+.tile.bld{background:radial-gradient(#f4ecd0,#d4c294);color:#332}
+.tile.empty{background:#eaf0d4;border-style:dashed;color:#897}
+.tile.empty .picon{opacity:.45}
+.tile.wide{grid-column:1/-1;flex-direction:row;min-height:52px;gap:10px}
+/* ===== peta ===== */
+#map{border-collapse:collapse;margin:0 auto}
+#map td{width:38px;height:38px;border:1px solid #7d9c4e;padding:0;text-align:center;vertical-align:middle;cursor:pointer;font-size:8px}
+#map td:hover{outline:2px solid #ff8;outline-offset:-2px}
+.m-empty{background:#8fb558}
+.m-empty2{background:#86ad50}
+.m-oasis{background:#6ea864}
+.m-bot{background:#c8b878}
+.m-bot.tr-roman{background:#d8c890}
+.m-bot.tr-teuton{background:#ccb070}
+.m-bot.tr-gaul{background:#c0bc88}
+.m-me{background:#e8e0a0;outline:2px solid #c00;outline-offset:-2px}
+#map .mi{font-size:16px;line-height:1.1;display:block}
+#map .mn{display:none}
+.mapnav{display:flex;gap:6px;align-items:center;justify-content:center;margin:8px 0;flex-wrap:wrap}
+.mapnav input[type=number]{width:64px}
+/* ===== modal ===== */
+#ovl{position:fixed;inset:0;background:rgba(20,25,8,.55);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:14px 6px}
+#ovl.show{display:flex}
+#modal{width:100%;max-width:560px;max-height:88vh;overflow:auto;background:#fdfaf0;border:3px solid #5f7f33;border-radius:6px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+#modal h2{background:linear-gradient(#6c9c3c,#3f6420);color:#fff;padding:8px 10px;font-size:14px;text-shadow:0 1px 1px #234}
+#modal .mbd{padding:12px 10px}
+#modal .x{float:right;color:#fff;cursor:pointer;font-weight:bold;padding:0 8px;font-size:16px}
+/* ===== misc ===== */
+.unitrow{display:flex;align-items:center;gap:8px;border-bottom:1px dotted #cbc29a;padding:7px 2px;flex-wrap:wrap}
+.unitrow .uic{font-size:21px;width:26px;text-align:center}
+.repline{padding:8px 6px;border-bottom:1px dotted #cbc29a;cursor:pointer}
+.repline:hover{background:#f4eed6}
+.repline.unread{font-weight:bold}
+#toasts{position:fixed;left:8px;right:8px;bottom:10px;z-index:99;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast{background:#2e4412;color:#fff;border:1px solid #9cc05c;border-radius:4px;padding:8px 13px;font-size:12px;box-shadow:0 3px 10px rgba(0,0,0,.4);animation:tin .3s;max-width:100%}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}}
+#ftr{border-top:1px solid #c9bf96;background:#efe8cd;padding:6px 10px;font-size:10px;color:#776;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.setupcard{max-width:620px;margin:10px auto;background:#fdfaf0;border:3px solid #5f7f33;border-radius:8px;padding:14px}
+.setupcard h2{font-family:Georgia,serif;color:#3f6420;margin-bottom:10px;font-size:18px}
+.tribeopt{display:flex;gap:8px;margin:6px 0;border:2px solid #cfc69c;border-radius:5px;padding:10px 8px;cursor:pointer;align-items:center}
+.tribeopt.sel{border-color:#3f6420;background:#ecf2d8}
+.tribeopt .tic{font-size:26px}
+.frow{margin:10px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.frow label{min-width:120px;font-weight:bold}
+.cdwrap{font-weight:bold;color:#066}
+.mvrow{padding:6px 5px;border-bottom:1px dotted #cbc29a}
+.mvrow.in{background:#fde8e0}
+.qrow{display:flex;justify-content:space-between;align-items:center;padding:6px 5px;border-bottom:1px dotted #cbc29a;gap:6px}
+.tag{color:#866;font-size:10px}
+/* ============ layar lebar ============ */
+@media(min-width:560px){
+  .fgrid{grid-template-columns:repeat(4,1fr)}
+}
+@media(min-width:760px){
+  body{font-size:11px}
+  #hdr h1{font-size:20px}
+  #hdr h1 small{font-size:10px}
+  #hdr .hright{font-size:10px}
+  #wrap{border-left:2px solid #1c2408;border-right:2px solid #1c2408;box-shadow:0 0 22px rgba(0,0,0,.6)}
+  #content{padding:12px}
+  #resbar{display:flex;gap:8px}
+  .rbox{flex:1}
+  .rbox.upk{flex:0 0 120px}
+  .cols{flex-direction:row;gap:12px}
+  .colR{width:295px}
+  .fgrid{grid-template-columns:repeat(6,1fr);gap:8px}
+  input[type=text],input[type=number],select,textarea{font-size:12px;padding:4px}
+  button,.btn{font-size:11px;padding:5px 12px}
+  #map td{width:50px;height:50px;font-size:9px}
+  #map .mi{font-size:19px}
+  #map .mn{display:block;font-size:8px;overflow:hidden;white-space:nowrap;max-width:48px;color:#332}
+  #nav .tab{padding:5px 14px;font-size:11px}
+  #toasts{left:auto;right:14px;bottom:14px;align-items:flex-end}
+  .setupcard{margin:30px auto;padding:20px}
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hdr">
+    <h1>⚔️ TRAVIAN KLASIK <small>versi offline — bot aktif</small></h1>
+    <div class="hright" id="hinfo"></div>
+  </div>
+  <div id="nav"></div>
+  <div id="subbar"></div>
+  <div id="resbar"></div>
+  <div id="content"></div>
+  <div id="ftr"><span id="fclock"></span><span>Travian Klasik Offline — data tersimpan otomatis di browser ini</span></div>
+</div>
+<div id="ovl"><div id="modal"></div></div>
+<div id="toasts"></div>
+<script src="js/data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/ui2.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
