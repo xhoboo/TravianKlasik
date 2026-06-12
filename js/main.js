@@ -9,13 +9,17 @@ function updateCDs() {
   });
   return expired;
 }
+let fc = 0;
 function frame() {
   if (!S) return;
+  fc++;
   tick();
   renderBar();
   $('fclock').textContent = '🕐 ' + new Date().toLocaleTimeString('id-ID');
   const expired = updateCDs();
-  if (dirty || expired) {
+  // statistik menyegarkan diri tiap 3 detik agar pertumbuhan bot terlihat langsung
+  const statsLive = VIEW.name === 'stats' && fc % 3 === 0;
+  if (dirty || expired || statsLive) {
     const a = document.activeElement;
     const typing = a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') && a.closest('#content,#modal');
     if (!typing) render(); else dirty = false;

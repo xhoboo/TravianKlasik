@@ -39,13 +39,15 @@ function newVillage(name, x, y) {
   };
 }
 function newGame(name, tribe, speed, diff) {
+  usedVNames = null;
   S = {
-    v:1, name: name || 'Pemain', tribe, speed, diff,
+    v:2, name: name || 'Pemain', tribe, speed, diff,
     botRaids: true,
     created: now(), last: now(), botAcc: 0,
     villages: [], active: 0,
     movs: [], reps: [], unread: 0, seq: 1,
     bots: [], oases: [],
+    stats: {att:0, def:0, raid:0},
   };
   S.villages.push(newVillage('Desa ' + S.name, 0, 0));
   AV().slots[0] = {b:'main', lvl:1};
@@ -55,69 +57,113 @@ function newGame(name, tribe, speed, diff) {
 }
 
 /* ---------- dunia & bot ---------- */
+// Registry nama desa — menjamin tidak ada dua desa bernama sama di seluruh dunia
+let usedVNames = null;
+function regVNames() {
+  usedVNames = new Set();
+  S.villages.forEach(v => usedVNames.add(v.name));
+  S.bots.forEach(b => (b.villages || []).forEach(v => usedVNames.add(v.vn)));
+}
+function uniqueVName() {
+  if (!usedVNames) regVNames();
+  for (let t = 0; t < 80; t++) {
+    const n = BOT_VNAMES[ri(0, BOT_VNAMES.length - 1)];
+    if (!usedVNames.has(n)) { usedVNames.add(n); return n; }
+  }
+  for (let i = 2; ; i++) for (const base of BOT_VNAMES) {
+    const n = base + ' ' + i;
+    if (!usedVNames.has(n)) { usedVNames.add(n); return n; }
+  }
+}
+const vResCap = v => 800 + v.pop * 30;
+const botPop = b => b.villages.reduce((a, v) => a + v.pop, 0);
+const maxBotV = b => clamp(Math.round(b.cap / 450), 2, 6);
+
 function makeWorld() {
   const used = {'0|0': 1};
-  const place = (rMin, rMax) => {
+  const place = (rMin, rMax, cx, cy) => {
+    cx = cx || 0; cy = cy || 0;
     for (let tries = 0; tries < 200; tries++) {
       const a = Math.random() * 2 * Math.PI, r = rnd(rMin, rMax);
-      const x = Math.round(Math.cos(a) * r), y = Math.round(Math.sin(a) * r);
+      const x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r);
       if (Math.abs(x) > MAP_R || Math.abs(y) > MAP_R) continue;
       if (!used[key(x, y)]) { used[key(x, y)] = 1; return {x, y}; }
     }
     return null;
   };
-  const tribes = ['roman','teuton','gaul'];
-  const N = 170;
+  const usedNm = new Set([S.name]);
+  regVNames();
+  const N = 250;
   for (let i = 0; i < N; i++) {
-    const p = i < 45 ? place(3.5, 12) : place(5, MAP_R);
+    const p = i < 55 ? place(3.5, 12) : place(5, MAP_R);
     if (!p) continue;
-    const sk = Math.random();                       // "keahlian" bot
-    const pop = Math.round(30 + sk * sk * 270);     // banyak bot kecil, sedikit besar
-    const bot = {
-      id: i + 1,
-      nm: BOT_NAMES[ri(0, BOT_NAMES.length - 1)] + (Math.random() < 0.4 ? ri(1, 99) : ''),
-      vn: BOT_VNAMES[ri(0, BOT_VNAMES.length - 1)],
-      tag: BOT_TAGS[ri(0, BOT_TAGS.length - 1)],
-      tribe: tribes[ri(0, 2)],
-      x: p.x, y: p.y,
-      pop,
-      gr: rnd(8, 32),               // pertumbuhan penduduk / hari (1x)
-      cap: ri(700, 2200),           // batas penduduk
-      res: {wood:0, clay:0, iron:0, crop:0},
-      tr: {},
-      wall: 0,
-      aggr: Math.random() * Math.random(),  // mayoritas pasif
-      defR: rnd(0.35, 0.95),
-      offR: rnd(0.15, 0.6),
-    };
-    for (const k of RES_KEYS) bot.res[k] = rnd(0.3, 0.9) * botResCap(bot);
-    bot.wall = Math.min(20, Math.floor(bot.pop / 50));
-    botFillTroops(bot, 1);          // pasukan awal langsung penuh
-    S.bots.push(bot);
+    S.bots.push(createBot(i + 1, p, Math.random(), usedNm, place));
   }
   // oasis
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 80; i++) {
     const p = place(2, MAP_R);
     if (p) S.oases.push({x:p.x, y:p.y, t: ri(0, OASIS_TYPES.length - 1)});
   }
 }
+// Cetak satu bot lengkap (dipakai pembuatan dunia & migrasi save lama)
+function createBot(id, p, sk, usedNm, place) {
+  const tribes = ['roman','teuton','gaul'];
+  const pop = Math.round(30 + sk * sk * 270);     // banyak bot kecil, sedikit besar
+  let nm = '';
+  for (let t = 0; t < 80 && !nm; t++) {           // nama pemain bot juga unik
+    const c = BOT_NAMES[ri(0, BOT_NAMES.length - 1)] + (Math.random() < 0.4 ? ri(1, 99) : '');
+    if (!usedNm.has(c)) { usedNm.add(c); nm = c; }
+  }
+  if (!nm) { nm = 'Pemain' + (1000 + id); usedNm.add(nm); }
+  const bot = {
+    id, nm,
+    tag: BOT_TAGS[ri(0, BOT_TAGS.length - 1)],
+    tribe: tribes[ri(0, 2)],
+    gr: rnd(8, 32),               // pertumbuhan penduduk / hari (1x)
+    cap: ri(700, 2200),           // batas penduduk per desa
+    aggr: Math.random() * Math.random(),  // mayoritas pasif
+    defR: rnd(0.35, 0.95),
+    offR: rnd(0.15, 0.6),
+    villages: [],
+    stA: 0, stD: 0, stR: 0,       // statistik perang: serang / bertahan / jarahan
+  };
+  addBotVillage(bot, p.x, p.y, pop);
+  // bot "lama" mulai dengan 2-3 desa, seperti server yang sudah berjalan
+  const extra = sk > 0.92 ? 2 : sk > 0.78 ? 1 : 0;
+  for (let e = 0; e < extra; e++) {
+    const p2 = place(2.5, 7, p.x, p.y);
+    if (p2) addBotVillage(bot, p2.x, p2.y, Math.round(pop * rnd(0.35, 0.6)));
+  }
+  // riwayat perang awal — dunia terasa sudah berjalan
+  bot.stA = Math.round(pop * bot.aggr * rnd(2, 8));
+  bot.stD = Math.round(pop * rnd(1, 5));
+  bot.stR = Math.round(pop * bot.aggr * rnd(20, 80));
+  return bot;
+}
+function addBotVillage(b, x, y, popN) {
+  const v = {vn: uniqueVName(), x, y, pop: popN, wall: Math.min(20, Math.floor(popN / 55)),
+    res: {wood:0, clay:0, iron:0, crop:0}, tr: {}};
+  for (const k of RES_KEYS) v.res[k] = rnd(0.3, 0.9) * vResCap(v);
+  b.villages.push(v);
+  botFillTroops(b, v, 1);
+  return v;
+}
 function buildTIDX() {
   TIDX = {};
-  S.bots.forEach(b => TIDX[key(b.x, b.y)] = {k:'bot', ref:b});
+  S.bots.forEach(b => b.villages.forEach((v, i) => TIDX[key(v.x, v.y)] = {k:'bot', ref:b, bv:v, bvi:i}));
   S.oases.forEach(o => TIDX[key(o.x, o.y)] = {k:'oasis', ref:o});
   S.villages.forEach((v, i) => TIDX[key(v.x, v.y)] = {k:'me', ref:v, vi:i});
 }
-const botAt = (x, y) => { const t = TIDX[key(x, y)]; return t && t.k === 'bot' ? t.ref : null; };
-const botResCap = b => 800 + b.pop * 30;
+const botAt = (x, y) => { const t = TIDX[key(x, y)]; return t && t.k === 'bot' ? t : null; };
 const BOT_MIX = { // [unit bertahan utama, sekunder], [unit serang utama, kavaleri]
   roman:  {def:[1,0], off:[2,4]},
   teuton: {def:[1,0], off:[0,4]},
   gaul:   {def:[0,4], off:[1,3]},
 };
-function botTargets(b) {
+function botTargets(b, v) {
   const d = DIFFS[S.diff];
   const mix = BOT_MIX[b.tribe];
-  const def = b.pop * b.defR * d.def, off = b.pop * b.offR;
+  const def = v.pop * b.defR * d.def, off = v.pop * b.offR;
   return {
     [mix.def[0]]: Math.round(def * 0.7),
     [mix.def[1]]: Math.round(def * 0.3),
@@ -125,11 +171,44 @@ function botTargets(b) {
     [mix.off[1]]: Math.round(off * 0.2 / 3),
   };
 }
-function botFillTroops(b, frac) {
-  const tg = botTargets(b);
+function botFillTroops(b, v, frac) {
+  const tg = botTargets(b, v);
   for (const u in tg) {
-    const cur = b.tr[u] || 0;
-    if (cur < tg[u]) b.tr[u] = Math.min(tg[u], cur + Math.max(1, Math.round((tg[u] - cur) * frac)));
+    const cur = v.tr[u] || 0;
+    if (cur < tg[u]) v.tr[u] = Math.min(tg[u], cur + Math.max(1, Math.round((tg[u] - cur) * frac)));
+  }
+}
+// Perang antar bot — diselesaikan seketika (abstrak, tanpa pergerakan di peta)
+function botBattle(b, bv, tb, tv) {
+  const mix = BOT_MIX[b.tribe];
+  const size = Math.round(clamp(bv.pop * 0.15, 8, 200));
+  const army = {};
+  army[mix.off[0]] = Math.min(bv.tr[mix.off[0]] || 0, size);
+  if ((bv.tr[mix.off[1]] || 0) > 4) army[mix.off[1]] = Math.min(bv.tr[mix.off[1]], Math.round(size / 8));
+  if (sumU(army) < 5) return;
+  const res = battle(army, b.tribe, tv.tr, tb.tribe, 0, true, 1, 1);
+  for (const u in res.aLoss) { bv.tr[u] -= res.aLoss[u]; if (bv.tr[u] <= 0) delete bv.tr[u]; }
+  for (const u in res.dLoss) { tv.tr[u] -= res.dLoss[u]; if (tv.tr[u] <= 0) delete tv.tr[u]; }
+  b.stA = (b.stA || 0) + sumL(res.dLoss);
+  tb.stD = (tb.stD || 0) + sumL(res.aLoss);
+  if (res.win) {
+    const surv = survivors(army, res.aLoss);
+    const loot = takeLoot(tv.res, carryOf(surv, b.tribe), 0);
+    RES_KEYS.forEach(k => bv.res[k] = Math.min(vResCap(bv), bv.res[k] + loot[k]));
+    b.stR = (b.stR || 0) + sumL(loot);
+  }
+}
+// Ekspansi bot: dirikan desa baru di dekat desa pertamanya (petak harus kosong)
+function botSettle(b) {
+  const first = b.villages[0];
+  for (let t = 0; t < 50; t++) {
+    const a = Math.random() * 2 * Math.PI, r = rnd(2.5, 8 + t / 6);
+    const x = Math.round(first.x + Math.cos(a) * r), y = Math.round(first.y + Math.sin(a) * r);
+    if (Math.abs(x) > MAP_R || Math.abs(y) > MAP_R || TIDX[key(x, y)]) continue;
+    const v = addBotVillage(b, x, y, ri(28, 42));
+    TIDX[key(x, y)] = {k:'bot', ref:b, bv:v, bvi:b.villages.length - 1};
+    dirty = true;
+    return;
   }
 }
 
@@ -249,7 +328,7 @@ function startTrain(v, u, n) {
   const unit = TR().units[u];
   n = Math.floor(n);
   if (n < 1) return false;
-  if (u === U_SETTLER && bLvl(v, 'residence') < 10) { toast('Butuh Kediaman tingkat 10!'); return false; }
+  if (u === U_SETTLER && bLvl(v, 'residence') < 10) { toast('Butuh ' + B.residence.nama + ' tingkat 10!'); return false; }
   const cost = unit.cost.map(c => c * n);
   if (!canAfford(v, cost)) { toast('Sumber daya tidak cukup!'); return false; }
   pay(v, cost);
@@ -390,48 +469,52 @@ function processMov(m) {
   }
   if (m.kind === 'botraid') { resolveBotRaid(m); return; }
   // serangan pemain -> petak
-  const bot = botAt(m.x, m.y);
-  if (!bot) {
+  const hit = botAt(m.x, m.y);
+  if (!hit) {
     pushReturn(m, m.units, null);
     addReport({type:'sys', title:'Target di (' + m.x + '|' + m.y + ') kosong', body:'Tidak ada desa di sana. Pasukan kembali.'});
     return;
   }
+  const bot = hit.ref, bv = hit.bv;
   if (m.kind === 'scout') {
     pushReturn(m, m.units, null);
-    addReport({type:'scout', title:'🕵️ Hasil pengintaian ' + esc(bot.vn) + ' (' + m.x + '|' + m.y + ')',
-      bot: {nm:bot.nm, vn:bot.vn, tribe:bot.tribe, pop:Math.round(bot.pop), wall:bot.wall},
-      res: {...bot.res}, tr: {...bot.tr}});
+    addReport({type:'scout', title:'🕵️ Hasil pengintaian ' + esc(bv.vn) + ' (' + m.x + '|' + m.y + ')',
+      bot: {nm:bot.nm, vn:bv.vn, tribe:bot.tribe, pop:Math.round(bv.pop), wall:bv.wall},
+      res: {...bv.res}, tr: {...bv.tr}});
     return;
   }
   // atk / raid
   const v = S.villages[m.vi];
   const aBonus = 1 + 0.015 * bLvl(v, 'smithy');
-  const dBonus = 1 + Math.min(0.2, bot.pop / 4000);
-  const res = battle(m.units, S.tribe, bot.tr, bot.tribe, m.kind === 'raid' ? 0 : bot.wall, m.kind === 'raid', aBonus, dBonus);
+  const dBonus = 1 + Math.min(0.2, bv.pop / 4000);
+  const res = battle(m.units, S.tribe, bv.tr, bot.tribe, m.kind === 'raid' ? 0 : bv.wall, m.kind === 'raid', aBonus, dBonus);
   // korban bot
-  for (const u in res.dLoss) { bot.tr[u] -= res.dLoss[u]; if (bot.tr[u] <= 0) delete bot.tr[u]; }
+  for (const u in res.dLoss) { bv.tr[u] -= res.dLoss[u]; if (bv.tr[u] <= 0) delete bv.tr[u]; }
+  S.stats.att += sumL(res.dLoss);
+  bot.stD = (bot.stD || 0) + sumL(res.aLoss);
   const surv = survivors(m.units, res.aLoss);
   let loot = null, extra = [];
   if (res.win) {
-    loot = takeLoot(bot.res, carryOf(surv, S.tribe), 0);
+    loot = takeLoot(bv.res, carryOf(surv, S.tribe), 0);
+    S.stats.raid += sumL(loot);
     if (m.kind === 'atk') {
       const rams = surv[U_RAM] || 0, catas = surv[U_CATA] || 0;
-      if (rams && bot.wall) {
-        const down = Math.min(bot.wall, Math.floor(Math.sqrt(rams)));
-        if (down) { bot.wall -= down; extra.push('🐏 Pendobrak merobohkan ' + TRIBE_DATA[bot.tribe].wallName + ' sebanyak ' + down + ' tingkat.'); }
+      if (rams && bv.wall) {
+        const down = Math.min(bv.wall, Math.floor(Math.sqrt(rams)));
+        if (down) { bv.wall -= down; extra.push('🐏 Pendobrak merobohkan ' + TRIBE_DATA[bot.tribe].wallName + ' sebanyak ' + down + ' tingkat.'); }
       }
       if (catas) {
         const dmg = Math.min(5, Math.floor(catas / 5) + 1);
-        bot.pop = Math.max(20, bot.pop - dmg * 8);
+        bv.pop = Math.max(20, bv.pop - dmg * 8);
         extra.push('☄️ Katapel menghancurkan bangunan (penduduk −' + dmg * 8 + ').');
       }
     }
   }
   addReport({type:'battle', win:res.win,
-    title:(res.win ? '⚔️ Kemenangan' : '💀 Kekalahan') + (m.kind==='raid' ? ' (rampokan)' : '') + ' di ' + esc(bot.vn) + ' (' + m.x + '|' + m.y + ')',
+    title:(res.win ? '⚔️ Kemenangan' : '💀 Kekalahan') + (m.kind==='raid' ? ' (rampokan)' : '') + ' di ' + esc(bv.vn) + ' (' + m.x + '|' + m.y + ')',
     att:{nm:S.name, vn:v.name, tribe:S.tribe, units:{...m.units}, loss:res.aLoss},
-    def:{nm:bot.nm, vn:bot.vn, tribe:bot.tribe, loss:res.dLoss, wall:bot.wall},
-    defBefore: addBack(bot.tr, res.dLoss),
+    def:{nm:bot.nm, vn:bv.vn, tribe:bot.tribe, loss:res.dLoss, wall:bv.wall},
+    defBefore: addBack(bv.tr, res.dLoss),
     loot, extra, pow:[res.aPow, res.dPow]});
   pushReturn(m, surv, loot);
 }
@@ -444,55 +527,85 @@ function resolveBotRaid(m) {
   const bot = S.bots.find(b => b.id === m.bot);
   const v = S.villages[m.vi];
   if (!bot || !v) return;
+  const bv = bot.villages[m.bvi || 0] || bot.villages[0];
   if (!liveMode) offlineLog.raidsIn++;
   const dBonus = 1 + 0.015 * bLvl(v, 'smithy');
   const res = battle(m.units, bot.tribe, v.troops, S.tribe, v.wall, true, 1, dBonus);
   for (const u in res.dLoss) { v.troops[u] -= res.dLoss[u]; if (v.troops[u] <= 0) delete v.troops[u]; }
-  for (const u in res.aLoss) { bot.tr[u] = Math.max(0, (bot.tr[u] || 0) - res.aLoss[u]); }
+  for (const u in res.aLoss) { bv.tr[u] = Math.max(0, (bv.tr[u] || 0) - res.aLoss[u]); }
+  S.stats.def += sumL(res.aLoss);
+  bot.stA = (bot.stA || 0) + sumL(res.dLoss);
   const surv = survivors(m.units, res.aLoss);
   let loot = null;
   if (res.win) {
     loot = takeLoot(v.res, carryOf(surv, bot.tribe), crannyOf(v));
-    RES_KEYS.forEach(k => bot.res[k] = Math.min(botResCap(bot), bot.res[k] + loot[k]));
+    RES_KEYS.forEach(k => bv.res[k] = Math.min(vResCap(bv), bv.res[k] + loot[k]));
+    bot.stR = (bot.stR || 0) + sumL(loot);
   }
   addReport({type:'battle', win:!res.win, defending:true,
     title:(res.win ? '🔥 Desa Anda dirampok oleh ' : '🛡️ Serangan berhasil ditahan dari ') + esc(bot.nm),
-    att:{nm:bot.nm, vn:bot.vn, tribe:bot.tribe, units:{...m.units}, loss:res.aLoss},
+    att:{nm:bot.nm, vn:bv.vn, tribe:bot.tribe, units:{...m.units}, loss:res.aLoss},
     def:{nm:S.name, vn:v.name, tribe:S.tribe, loss:res.dLoss},
     defBefore: addBack(v.troops, res.dLoss),
     loot, extra:[], pow:[res.aPow, res.dPow]});
   if (liveMode) toast(res.win ? '🔥 Desa Anda dirampok ' + esc(bot.nm) + '!' : '🛡️ Serangan ' + esc(bot.nm) + ' berhasil ditahan!');
 }
 
-/* ---------- AI bot per jam-game ---------- */
-function botHour(t) {
+/* ---------- AI bot (berdetak tiap 10 detik saat game terbuka) ---------- */
+function botTick(dtSec, tNow) {
   const d = DIFFS[S.diff];
+  const dtH = dtSec / 3600;
   const totalPop = S.villages.reduce((a, v) => a + pop(v), 0);
   const protect = (S.last - S.created < 8 * 3600) || totalPop < 80;
   for (const b of S.bots) {
-    // tumbuh seperti pemain asli
-    b.pop += b.gr * S.speed / 24 * Math.max(0.05, 1 - b.pop / b.cap);
-    const cap = botResCap(b);
-    for (const k of RES_KEYS) b.res[k] = Math.min(cap, b.res[k] + b.pop * 1.4 * S.speed);
-    b.wall = Math.max(b.wall, Math.min(20, Math.floor(b.pop / 55)));
-    botFillTroops(b, 0.03 * S.speed);   // bangun ulang pasukan pelan-pelan
+    let total = 0;
+    for (const v of b.villages) {
+      // tumbuh terus-menerus seperti pemain asli
+      v.pop += b.gr * S.speed / 24 * dtH * Math.max(0.05, 1 - v.pop / b.cap);
+      const cap = vResCap(v);
+      for (const k of RES_KEYS) v.res[k] = Math.min(cap, v.res[k] + v.pop * 1.4 * S.speed * dtH);
+      v.wall = Math.max(v.wall, Math.min(20, Math.floor(v.pop / 55)));
+      botFillTroops(b, v, Math.min(1, 0.03 * S.speed * dtH));  // bangun ulang pasukan pelan-pelan
+      total += v.pop;
+    }
+    // dirikan desa ke-2, ke-3, dst. setelah cukup besar — seperti pemain asli
+    if (b.villages.length < maxBotV(b) && total >= 280 * b.villages.length &&
+        Math.random() < 0.03 * S.speed * dtH) {
+      botSettle(b);
+    }
+    // perang antar bot — intensitas rendah; hanya merebut sumber daya & pasukan,
+    // populasi korban tidak tersentuh sehingga bot terbelakang tetap bisa tumbuh
+    if (total >= 150 && Math.random() < b.aggr * 0.03 * S.speed * dtH) {
+      const bv = b.villages[ri(0, b.villages.length - 1)];
+      for (let t = 0; t < 8; t++) {
+        const tb = S.bots[ri(0, S.bots.length - 1)];
+        if (tb === b) continue;
+        const tv = tb.villages[ri(0, tb.villages.length - 1)];
+        if (tv.pop < 80 || dist(bv.x, bv.y, tv.x, tv.y) > 15) continue;
+        botBattle(b, bv, tb, tv);
+        break;
+      }
+    }
     // rampokan ke pemain (jarang & kecil = difficulty rendah)
-    if (!S.botRaids || protect || b.pop < 120) continue;
-    if (Math.random() > b.aggr * 0.05 * d.raidCh) continue;
-    let best = null, bd = 1e9;
-    S.villages.forEach((v, vi) => { const dd = dist(b.x, b.y, v.x, v.y); if (dd < bd) { bd = dd; best = vi; } });
-    if (bd > 20) continue;
+    if (!S.botRaids || protect || total < 120) continue;
+    if (Math.random() > b.aggr * 0.05 * d.raidCh * b.villages.length * dtH) continue;
+    let bv = null, bvi = 0, pvi = 0, bd = 1e9;
+    b.villages.forEach((v, bi) => S.villages.forEach((pv, pi) => {
+      const dd = dist(v.x, v.y, pv.x, pv.y);
+      if (dd < bd) { bd = dd; bv = v; bvi = bi; pvi = pi; }
+    }));
+    if (bd > 20 || bv.pop < 100) continue;
     const mix = BOT_MIX[b.tribe];
-    const size = Math.round(clamp(b.pop * 0.18 * d.raidSz, 8, 250));
+    const size = Math.round(clamp(bv.pop * 0.18 * d.raidSz, 8, 250));
     const u0 = mix.off[0], u1 = mix.off[1];
     const army = {};
-    army[u0] = Math.min(b.tr[u0] || 0, size);
-    if ((b.tr[u1] || 0) > 4 && b.pop > 300) army[u1] = Math.min(b.tr[u1], Math.round(size / 8));
+    army[u0] = Math.min(bv.tr[u0] || 0, size);
+    if ((bv.tr[u1] || 0) > 4 && bv.pop > 300) army[u1] = Math.min(bv.tr[u1], Math.round(size / 8));
     if (sumU(army) < 5) continue;
-    for (const u in army) b.tr[u] -= army[u];
-    const v = S.villages[best];
+    for (const u in army) bv.tr[u] -= army[u];
+    const pv = S.villages[pvi];
     const dur = travelSec(bd, slowest(army, b.tribe));
-    S.movs.push({id:S.seq++, kind:'botraid', bot:b.id, vi:best, x:v.x, y:v.y, units:army, depart:t, arrive:t + dur});
+    S.movs.push({id:S.seq++, kind:'botraid', bot:b.id, bvi, vi:pvi, x:pv.x, y:pv.y, units:army, depart:tNow, arrive:tNow + dur});
     dirty = true;
   }
 }
@@ -533,7 +646,8 @@ function sim(step) {
     dirty = true;
   }
   S.botAcc += step;
-  while (S.botAcc >= 3600) { botHour(t1); S.botAcc -= 3600; }
+  const bt = liveMode ? 10 : 600;   // detak halus saat dibuka, kasar saat susulan offline
+  while (S.botAcc >= bt) { botTick(bt, t1); S.botAcc -= bt; }
   S.last = t1;
 }
 function tick() {
@@ -553,10 +667,68 @@ function tick() {
 /* ---------- simpan / muat ---------- */
 const SAVE_KEY = 'travianKlasikOffline';
 function save() { if (S) localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }
+// Migrasi save versi lama: bot satu-desa -> multi-desa + jaminan nama unik
+function migrate() {
+  if (S.v >= 2) return;
+  const usedNm = new Set([S.name]);
+  usedVNames = new Set(S.villages.map(v => v.name));
+  S.bots.forEach(b => {
+    if (!b.villages) {
+      b.villages = [{vn: b.vn, x: b.x, y: b.y, pop: b.pop, wall: b.wall, res: b.res, tr: b.tr}];
+      delete b.vn; delete b.x; delete b.y; delete b.pop; delete b.wall; delete b.res; delete b.tr;
+    }
+    b.villages.forEach(v => {
+      let n = v.vn, i = 2;
+      while (usedVNames.has(n)) n = v.vn + ' ' + i++;
+      v.vn = n; usedVNames.add(n);
+    });
+    let n = b.nm, i = 2;
+    while (usedNm.has(n)) n = b.nm + i++;
+    b.nm = n; usedNm.add(n);
+  });
+  S.movs.forEach(m => { if (m.kind === 'botraid' && m.bvi === undefined) m.bvi = 0; });
+  S.v = 2;
+}
+// v3: statistik perang + dunia diisi hingga 250 bot
+function migrateV3() {
+  if (S.v >= 3) return;
+  if (!S.stats) S.stats = {att:0, def:0, raid:0};
+  S.bots.forEach(b => {
+    if (b.stA === undefined) {
+      const tp = botPop(b);
+      b.stA = Math.round(tp * b.aggr * rnd(2, 8));
+      b.stD = Math.round(tp * rnd(1, 5));
+      b.stR = Math.round(tp * b.aggr * rnd(20, 80));
+    }
+  });
+  const occ = {};
+  S.bots.forEach(b => b.villages.forEach(v => occ[key(v.x, v.y)] = 1));
+  S.oases.forEach(o => occ[key(o.x, o.y)] = 1);
+  S.villages.forEach(v => occ[key(v.x, v.y)] = 1);
+  const place = (rMin, rMax, cx, cy) => {
+    cx = cx || 0; cy = cy || 0;
+    for (let tries = 0; tries < 200; tries++) {
+      const a = Math.random() * 2 * Math.PI, r = rnd(rMin, rMax);
+      const x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r);
+      if (Math.abs(x) > MAP_R || Math.abs(y) > MAP_R) continue;
+      if (!occ[key(x, y)]) { occ[key(x, y)] = 1; return {x, y}; }
+    }
+    return null;
+  };
+  const usedNm = new Set([S.name]);
+  S.bots.forEach(b => usedNm.add(b.nm));
+  let id = S.bots.reduce((a, b) => Math.max(a, b.id), 0);
+  while (S.bots.length < 250) {
+    const p = place(5, MAP_R);
+    if (!p) break;
+    S.bots.push(createBot(++id, p, Math.random(), usedNm, place));
+  }
+  S.v = 3;
+}
 function load() {
   const raw = localStorage.getItem(SAVE_KEY);
   if (!raw) return false;
-  try { S = JSON.parse(raw); buildTIDX(); return true; }
+  try { S = JSON.parse(raw); usedVNames = null; migrate(); migrateV3(); buildTIDX(); return true; }
   catch (e) { console.error(e); return false; }
 }
 function hardReset() { localStorage.removeItem(SAVE_KEY); location.reload(); }

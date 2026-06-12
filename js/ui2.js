@@ -9,7 +9,7 @@ function trainUI(v, b) {
     if (u.b !== b) return;
     if (!v.researched[i]) return;
     if (i === U_SETTLER && bLvl(v, 'residence') < 10) {
-      rows += '<div class="unitrow"><span class="uic">' + u.icon + '</span><div style="flex:1"><b>' + u.nama + '</b><br><span class="red">Butuh Kediaman tingkat 10</span></div></div>';
+      rows += '<div class="unitrow"><span class="uic">' + u.icon + '</span><div style="flex:1"><b>' + u.nama + '</b><br><span class="red">Butuh ' + B.residence.nama + ' tingkat 10</span></div></div>';
       return;
     }
     const maxN = Math.floor(Math.min(...RES_KEYS.map((k, j) => u.cost[j] ? v.res[k] / u.cost[j] : 1e9)));
@@ -108,7 +108,7 @@ function vMap() {
       let cls = (x + y) % 2 ? 'm-empty' : 'm-empty2', ic = '', nm = '';
       if (t) {
         if (t.k === 'me') { cls = 'm-me'; ic = '🏰'; nm = esc(t.ref.name); }
-        else if (t.k === 'bot') { cls = 'm-bot tr-' + t.ref.tribe; ic = '🏘️'; nm = esc(t.ref.vn); }
+        else if (t.k === 'bot') { cls = 'm-bot tr-' + t.ref.tribe; ic = '🏘️'; nm = esc(t.bv.vn); }
         else { cls = 'm-oasis'; ic = OASIS_TYPES[t.ref.t].icon; }
       }
       rows += '<td class="' + cls + '" onclick="go(\'tile\',{x:' + x + ',y:' + y + '})" title="(' + x + '|' + y + ')">' +
@@ -140,12 +140,13 @@ function vTile() {
     h += '<p><b>' + esc(vv.name) + '</b> — desa Anda sendiri. Penduduk: ' + pop(vv) + '</p><br>' +
       '<button onclick="S.active=' + t.vi + ';save();go(\'dorf1\')">Masuk Desa</button>';
   } else if (t && t.k === 'bot') {
-    const b = t.ref;
+    const b = t.ref, bv = t.bv;
     h += '<table class="t">' +
-      '<tr><th>Desa</th><td>' + esc(b.vn) + '</td></tr>' +
+      '<tr><th>Desa</th><td>' + esc(bv.vn) + '</td></tr>' +
       '<tr><th>Pemain</th><td>' + esc(b.nm) + (b.tag ? ' <span class="tag">[' + b.tag + ']</span>' : '') + '</td></tr>' +
-      '<tr><th>Suku</th><td>' + TRIBE_DATA[b.tribe].icon + ' ' + TRIBE_DATA[b.tribe].nama + '</td></tr>' +
-      '<tr><th>Penduduk</th><td>' + Math.round(b.pop) + '</td></tr></table><br>' +
+      '<tr><th>Kerajaan</th><td>' + TRIBE_DATA[b.tribe].icon + ' ' + TRIBE_DATA[b.tribe].nama + '</td></tr>' +
+      '<tr><th>Penduduk desa</th><td>' + Math.round(bv.pop) + '</td></tr>' +
+      '<tr><th>Total akun</th><td>' + Math.round(botPop(b)) + ' (' + b.villages.length + ' desa)</td></tr></table><br>' +
       '<button onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'atk\'})">⚔️ Serang</button> ' +
       '<button onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'raid\'})">💰 Rampok</button> ' +
       '<button class="sec" onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'scout\'})">🕵️ Intai</button>';
@@ -153,7 +154,7 @@ function vTile() {
     h += '<p>' + OASIS_TYPES[t.ref.t].icon + ' <b>' + OASIS_TYPES[t.ref.t].nama + '</b></p><p class="muted">Wilayah liar yang belum dijamah.</p>';
   } else {
     const settlers = v.troops[U_SETTLER] || 0;
-    h += '<p>🌿 <b>Padang rumput kosong</b></p><p class="muted">Petak ini bisa dijadikan desa baru (butuh 3 Pemukim dari Kediaman tk.10).</p><br>' +
+    h += '<p>🌿 <b>Padang rumput kosong</b></p><p class="muted">Petak ini bisa dijadikan desa baru (butuh 3 Pemukim dari ' + B.residence.nama + ' tk.10).</p><br>' +
       '<button ' + (settlers >= 3 ? '' : 'disabled') + ' onclick="doSettle(' + x + ',' + y + ')">🚚 Dirikan Desa Baru (3 Pemukim' + (settlers < 3 ? ' — punya ' + settlers : '') + ')</button>';
   }
   h += '<br><br><a onclick="go(\'map\')">« kembali ke peta</a></div></div>';
@@ -181,7 +182,7 @@ function vRally() {
   let mrows = movs.length ? movs.map(mvLine).join('') : '<span class="muted">Tidak ada pergerakan pasukan.</span>';
   return '<div class="cols"><div class="colL">' +
     '<div class="box"><h3>🚩 Kirim Pasukan</h3><div class="bd">' +
-    (bLvl(v, 'rally') < 1 ? '<p class="red">Bangun <b>Titik Kumpul</b> di pusat desa untuk mengirim pasukan!</p>' :
+    (bLvl(v, 'rally') < 1 ? '<p class="red">Bangun <b>' + B.rally.nama + '</b> di pusat desa untuk mengirim pasukan!</p>' :
       '<div class="scrollx"><table class="t"><tr><th>Unit</th><th class="ctr">Ada</th><th>Kirim</th></tr>' + urows + '</table></div><br>' +
       '<div class="frow"><label>Koordinat tujuan</label>x: <input type="number" id="sx" value="' + (p.x !== undefined ? p.x : 0) + '" style="width:55px"> y: <input type="number" id="sy" value="' + (p.y !== undefined ? p.y : 0) + '" style="width:55px"></div>' +
       '<div class="frow"><label>Jenis misi</label>' +
@@ -258,34 +259,62 @@ function vReport() {
   return h;
 }
 
-/* ---------- statistik ---------- */
+/* ---------- statistik (diperbarui real time) ---------- */
 function vStats() {
   const myPop = S.villages.reduce((a, v) => a + pop(v), 0);
-  const all = S.bots.map(b => ({nm:b.nm, tag:b.tag, vn:b.vn, pop:Math.round(b.pop), tribe:b.tribe, me:false}));
-  all.push({nm:S.name, tag:'', vn:AV().name, pop:myPop, tribe:S.tribe, me:true});
+  const all = S.bots.map(b => ({
+    nm: b.nm, tag: b.tag, tribe: b.tribe, me: false,
+    pop: botPop(b), nv: b.villages.length,
+    grD: b.villages.reduce((a, v) => a + b.gr * S.speed * Math.max(0.05, 1 - v.pop / b.cap), 0),
+  }));
+  all.push({nm:S.name, tag:'', tribe:S.tribe, pop:myPop, nv:S.villages.length, grD:null, me:true});
   all.sort((a, b) => b.pop - a.pop);
   const myRank = all.findIndex(a => a.me) + 1;
+  const totV = all.reduce((a, x) => a + x.nv, 0);
   let rows = '';
   all.slice(0, 100).forEach((a, i) => {
     rows += '<tr class="' + (a.me ? 'hl' : '') + '"><td class="ctr">' + (i + 1) + '</td>' +
       '<td>' + TRIBE_DATA[a.tribe].icon + ' ' + esc(a.nm) + (a.tag ? ' <span class="tag">[' + a.tag + ']</span>' : '') + (a.me ? ' <b>(Anda)</b>' : '') + '</td>' +
-      '<td>' + esc(a.vn) + '</td><td class="rt">' + fmtN(a.pop) + '</td></tr>';
+      '<td class="ctr">' + a.nv + '</td>' +
+      '<td class="rt">' + fmtN(a.pop) + '</td>' +
+      '<td class="rt green">' + (a.grD === null ? '—' : '+' + a.grD.toFixed(1)) + '</td></tr>';
   });
-  return '<div class="box" style="max-width:700px;margin:0 auto"><h3>🏆 Peringkat Pemain — posisi Anda: #' + myRank + ' dari ' + all.length + '</h3><div class="bd">' +
-    '<table class="t"><tr><th class="ctr">#</th><th>Pemain</th><th>Desa</th><th class="rt">Penduduk</th></tr>' + rows + '</table>' +
-    '<p class="muted" style="margin-top:6px">Para bot terus berkembang seperti pemain asli — pantau peringkat Anda!</p></div></div>';
+  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>🏆 Peringkat Pemain — posisi Anda: #' + myRank + ' dari ' + all.length + ' · total ' + fmtN(totV) + ' desa <span style="float:right;font-weight:normal;color:#a33">🔴 langsung ' + new Date().toLocaleTimeString('id-ID') + '</span></h3><div class="bd">' +
+    '<div class="scrollx"><table class="t"><tr><th class="ctr">#</th><th>Pemain</th><th class="ctr">Desa</th><th class="rt">Penduduk</th><th class="rt">±/hari</th></tr>' + rows + '</table></div>' +
+    '<p class="muted" style="margin-top:6px">⏱ Papan peringkat diperbarui <b>langsung</b> — bot tumbuh, berperang satu sama lain, dan mendirikan desa baru secara real time.</p></div></div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;max-width:760px;margin:10px auto 0">' +
+    topBoard('⚔️', 'Penyerang Terbanyak', 'A', 'att') +
+    topBoard('🛡️', 'Bertahan Terbanyak', 'D', 'def') +
+    topBoard('💰', 'Perampok Terbanyak', 'R', 'raid') +
+    '</div>';
+}
+// Papan 10 besar: A = prajurit musuh ditumbangkan saat menyerang, D = saat bertahan, R = jarahan
+function topBoard(icon, title, bKey, pKey) {
+  const arr = S.bots.map(b => ({nm:b.nm, val:Math.round(b['st' + bKey] || 0), me:false}));
+  arr.push({nm:S.name, val:Math.round((S.stats && S.stats[pKey]) || 0), me:true});
+  arr.sort((a, b) => b.val - a.val);
+  const myR = arr.findIndex(a => a.me) + 1;
+  let rows = '';
+  arr.slice(0, 10).forEach((a, i) => {
+    rows += '<tr class="' + (a.me ? 'hl' : '') + '"><td class="ctr">' + (i + 1) + '</td>' +
+      '<td>' + esc(a.nm) + (a.me ? ' <b>(Anda)</b>' : '') + '</td><td class="rt">' + fmtN(a.val) + '</td></tr>';
+  });
+  return '<div class="box" style="flex:1 1 220px;min-width:0"><h3>' + icon + ' ' + title + '</h3><div class="bd">' +
+    '<table class="t">' + rows + '</table>' +
+    (myR > 10 ? '<p class="muted" style="margin-top:4px">Posisi Anda: #' + myR + ' (' + fmtN(arr[myR - 1].val) + ')</p>' : '') +
+    '</div></div>';
 }
 
 /* ---------- bantuan ---------- */
 function vHelp() {
   return '<div class="box" style="max-width:720px;margin:0 auto"><h3>📖 Bantuan & Pengaturan</h3><div class="bd">' +
     '<h3>Cara bermain</h3><ul style="margin:6px 0 12px 18px;line-height:1.7">' +
-    '<li><b>Sumber Daya:</b> klik ladang untuk meningkatkannya — kayu, tanah liat, besi, gandum.</li>' +
-    '<li><b>Pusat Desa:</b> klik lahan kosong untuk membangun gedung. Gudang & Lumbung menambah kapasitas; Gedung Utama mempercepat pembangunan.</li>' +
-    '<li><b>Pasukan:</b> bangun Titik Kumpul + Barak, lalu latih pasukan. Unit lanjutan perlu diriset di Akademi.</li>' +
+    '<li><b>Sumber Daya:</b> klik ladang untuk meningkatkannya — kayu, lempung, besi, padi.</li>' +
+    '<li><b>Pusat Desa:</b> klik lahan kosong untuk membangun gedung. Gudang & Lumbung Padi menambah kapasitas; Pendopo Agung mempercepat pembangunan.</li>' +
+    '<li><b>Prajurit:</b> bangun Alun-Alun + Ksatrian, lalu latih prajurit. Unit lanjutan perlu diriset di Padepokan.</li>' +
     '<li><b>Merampok:</b> buka Peta, klik desa bot, pilih 💰 Rampok. Jarahan adalah kunci berkembang cepat!</li>' +
-    '<li><b>Bertahan:</b> bot sesekali merampok Anda. Bangun ' + TR().wallName + ', Persembunyian, dan pasukan bertahan.</li>' +
-    '<li><b>Ekspansi:</b> Kediaman tk.10 → latih 3 Pemukim → klik petak kosong di peta → dirikan desa baru.</li>' +
+    '<li><b>Bertahan:</b> bot sesekali merampok Anda (mereka juga saling serang). Bangun ' + TR().wallName + ', Luweng, dan prajurit bertahan.</li>' +
+    '<li><b>Ekspansi:</b> Kraton tk.10 → latih 3 Pemukim → klik petak kosong di peta → dirikan desa baru.</li>' +
     '<li><b>Offline:</b> game terus berjalan saat ditutup (maks. 7 hari) — desa & bot tetap tumbuh, serangan tetap terjadi.</li></ul>' +
     '<h3>Pengaturan</h3>' +
     '<div class="frow"><label>Rampokan bot</label><label style="width:auto;font-weight:normal"><input type="checkbox" ' + (S.botRaids ? 'checked' : '') + ' onchange="S.botRaids=this.checked;save()"> aktif (matikan untuk mode damai)</label></div>' +
@@ -317,10 +346,10 @@ function renderSetup() {
     return '<div class="tribeopt ' + (setupTribe === t ? 'sel' : '') + '" onclick="setupTribe=\'' + t + '\';renderSetup()">' +
       '<span class="tic">' + td.icon + '</span><div><b>' + td.nama + '</b><br><span class="muted">' + td.desc + '</span></div></div>';
   };
-  $('content').innerHTML = '<div class="setupcard"><h2>⚔️ Selamat datang di Travian Klasik Offline!</h2>' +
-    '<p class="muted">Bangun desamu, latih pasukan, rampok tetangga — di dunia berisi 170 bot yang terus tumbuh seperti pemain asli. Semuanya offline, tersimpan otomatis di browser ini.</p><br>' +
+  $('content').innerHTML = '<div class="setupcard"><h2>⚔️ Selamat datang di Wilwatikta!</h2>' +
+    '<p class="muted">Bangun desamu di tanah Jawa, latih prajurit, rampok tetangga — di dunia berisi 250 bot yang terus tumbuh, saling berperang, dan berekspansi seperti pemain asli. Bergaya Travian Klasik, semuanya offline, tersimpan otomatis di browser ini.</p><br>' +
     '<div class="frow"><label>Nama pemain</label><input type="text" id="pn" value="Pemain" maxlength="16"></div>' +
-    '<div class="frow"><label>Suku</label></div>' + opt('roman') + opt('teuton') + opt('gaul') +
+    '<div class="frow"><label>Kerajaan</label></div>' + opt('roman') + opt('teuton') + opt('gaul') +
     '<div class="frow"><label>Kecepatan server</label><select id="ps"><option value="1">1x (klasik, sangat lambat)</option><option value="3" selected>3x (disarankan)</option><option value="5">5x (cepat)</option><option value="10">10x (sangat cepat)</option><option value="100">100x (turbo gila!)</option></select></div>' +
     '<div class="frow"><label>Kesulitan bot</label><select id="pd"><option value="easy" selected>Mudah (disarankan)</option><option value="normal">Normal</option><option value="hard">Sulit</option></select></div><br>' +
     '<button style="font-size:14px;padding:8px 24px" onclick="doStart()">🏰 Mulai Bermain!</button></div>';
@@ -331,5 +360,5 @@ function doStart() {
   const diff = document.getElementById('pd').value;
   newGame(name, setupTribe, speed, diff);
   go('dorf1');
-  toast('🏰 Selamat datang, Kepala Desa ' + esc(name) + '! Mulailah dengan meningkatkan ladang.');
+  toast('🏰 Selamat datang di Wilwatikta, Kepala Desa ' + esc(name) + '! Mulailah dengan meningkatkan sawah & ladang.');
 }

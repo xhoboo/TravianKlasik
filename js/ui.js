@@ -95,7 +95,7 @@ function sideQueue(v) {
 function sideTroops(v) {
   const keys = Object.keys(v.troops);
   let h = '<div class="box"><h3>🛡️ Pasukan di Desa</h3><div class="bd">';
-  if (!keys.length) h += '<span class="muted">Tidak ada pasukan. Bangun Barak untuk melatih.</span>';
+  if (!keys.length) h += '<span class="muted">Tidak ada prajurit. Bangun ' + B.barracks.nama + ' untuk melatih.</span>';
   keys.forEach(u => {
     const ud = TR().units[u];
     h += '<div class="qrow"><span>' + ud.icon + ' ' + ud.nama + '</span><b>' + fmtN(v.troops[u]) + '</b></div>';
@@ -116,7 +116,8 @@ function mvLine(m) {
   let who = '(' + m.x + '|' + m.y + ')';
   if (m.kind === 'botraid') {
     const b = S.bots.find(bb => bb.id === m.bot);
-    who = (b ? esc(b.vn) + ' ' : '') + '→ ' + esc(S.villages[m.vi].name);
+    const bv = b && (b.villages[m.bvi || 0] || b.villages[0]);
+    who = (bv ? esc(bv.vn) + ' ' : '') + '→ ' + esc(S.villages[m.vi].name);
   } else if (m.kind === 'trade') {
     who = esc(S.villages[m.tvi].name);
   }
