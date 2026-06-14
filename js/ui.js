@@ -62,6 +62,7 @@ function renderChrome() {
   const plusTags = [];
   if (plusProdActive()) plusTags.push('🌾+25% ' + fmtT(S.plus.prod - S.last));
   if (plusInstantActive()) plusTags.push('⚡ ' + fmtT(S.plus.instant - S.last));
+  if (plusTrainActive()) plusTags.push('🎯 ' + fmtT(S.plus.train - S.last));
   $('hinfo').innerHTML = 'Kecepatan <b>' + S.speed + 'x</b> · Bot: <b>' + DIFFS[S.diff].nama + '</b>' +
     (S.wonder ? ' · 🛕 Mode Wonder' : ' · ♾️ Bebas') +
     (plusTags.length ? '<br><span style="color:#ffe9a8">⭐ ' + plusTags.join(' · ') + '</span>' : '');
@@ -97,11 +98,15 @@ function sideQueue(v) {
   h += '</div></div>';
   // antrian pelatihan
   const rows = [];
+  let hasTrain = false;
   for (const b in v.tq) v.tq[b].forEach(q => {
+    hasTrain = true;
     rows.push('<div class="qrow"><span>' + TR().units[q.u].icon + ' ' + TR().units[q.u].nama + ' ×' + q.n + '</span><span>' + cd(q.next + q.each * (q.n - 1)) + '</span></div>');
   });
   if (v.researching) rows.push('<div class="qrow"><span>🎓 Riset ' + TR().units[v.researching.u].nama + '</span><span>' + cd(v.researching.done) + '</span></div>');
-  if (rows.length) h += '<div class="box"><h3>🎯 Pelatihan & Riset</h3><div class="bd">' + rows.join('') + '</div></div>';
+  if (rows.length) h += '<div class="box"><h3>🎯 Pelatihan & Riset</h3><div class="bd">' + rows.join('') +
+    (hasTrain && plusTrainActive() ? '<div style="margin-top:6px"><button class="sec" onclick="finishAllTraining(AV());render()">🎯 Selesaikan semua pelatihan seketika</button></div>' : '') +
+    '</div></div>';
   return h;
 }
 function sideTroops(v) {

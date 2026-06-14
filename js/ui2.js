@@ -224,15 +224,29 @@ function doSend() {
   if (sendTroops(S.active, x, y, units, kind)) { render(); toast('🚩 Pasukan berangkat!'); }
 }
 
-/* ---------- laporan ---------- */
+/* ---------- laporan (10 per halaman, maks. 100, bisa di-⭐) ---------- */
+let repPage = 0;
+const REP_PER_PAGE = 10;
 function vReports() {
   S.unread = 0; save();
   if (!S.reps.length) return '<div class="box"><h3>📜 Laporan</h3><div class="bd"><span class="muted">Belum ada laporan.</span></div></div>';
-  let rows = S.reps.map(r =>
-    '<div class="repline ' + (r.unread ? 'unread' : '') + '" onclick="go(\'report\',{id:' + r.id + '})">' +
-    '<span class="tag">' + new Date(r.time * 1000).toLocaleString('id-ID') + '</span><br>' + r.title + '</div>'
+  const pages = Math.max(1, Math.ceil(S.reps.length / REP_PER_PAGE));
+  repPage = clamp(repPage, 0, pages - 1);
+  const slice = S.reps.slice(repPage * REP_PER_PAGE, repPage * REP_PER_PAGE + REP_PER_PAGE);
+  const starred = S.reps.filter(r => r.star).length;
+  let rows = slice.map(r =>
+    '<div class="repline ' + (r.unread ? 'unread' : '') + '" style="display:flex;align-items:center;gap:8px">' +
+    '<span onclick="event.stopPropagation();toggleStar(' + r.id + ');render()" title="Tandai agar tidak terhapus" style="cursor:pointer;font-size:16px">' + (r.star ? '⭐' : '☆') + '</span>' +
+    '<span style="flex:1;min-width:0;cursor:pointer" onclick="go(\'report\',{id:' + r.id + '})">' +
+    '<span class="tag">' + new Date(r.time * 1000).toLocaleString('id-ID') + '</span><br>' + r.title + '</span></div>'
   ).join('');
-  return '<div class="box"><h3>📜 Laporan</h3><div class="bd" style="padding:0">' + rows + '</div></div>';
+  const nav = '<div class="mapnav">' +
+    '<button class="sec" ' + (repPage <= 0 ? 'disabled' : '') + ' onclick="repPage--;render()">« Sebelumnya</button>' +
+    '<span>Halaman <b>' + (repPage + 1) + '</b> / ' + pages + '</span>' +
+    '<button class="sec" ' + (repPage >= pages - 1 ? 'disabled' : '') + ' onclick="repPage++;render()">Berikutnya »</button></div>';
+  return '<div class="box"><h3>📜 Laporan (' + S.reps.length + '/' + REP_MAX + (starred ? ' · ⭐' + starred : '') + ')</h3>' +
+    '<div class="bd" style="padding:0">' + rows + '</div></div>' + nav +
+    '<p class="ctr muted">Maks. ' + REP_MAX + ' laporan — yang lama otomatis terhapus saat ada laporan baru. Klik ☆ untuk men-⭐ agar tidak ikut terhapus.</p>';
 }
 function unitTable(tribe, before, loss) {
   const units = TRIBE_DATA[tribe].units;
@@ -251,7 +265,8 @@ function vReport() {
   if (!r) return vReports();
   r.unread = false; save();
   let h = '<div class="box" style="max-width:700px;margin:0 auto"><h3>' + r.title + '</h3><div class="bd">' +
-    '<p class="tag">' + new Date(r.time * 1000).toLocaleString('id-ID') + '</p><br>';
+    '<p><span class="tag">' + new Date(r.time * 1000).toLocaleString('id-ID') + '</span>' +
+    ' &nbsp;<a onclick="toggleStar(' + r.id + ');render()" style="cursor:pointer">' + (r.star ? '⭐ tersimpan' : '☆ simpan laporan') + '</a></p><br>';
   if (r.type === 'battle') {
     h += '<p><b>⚔️ Penyerang:</b> ' + esc(r.att.nm) + ' — ' + esc(r.att.vn) + ' (' + TRIBE_DATA[r.att.tribe].nama + ')</p>' +
       unitTable(r.att.tribe, r.att.units, r.att.loss) + '<br>' +
@@ -271,8 +286,19 @@ function vReport() {
   return h;
 }
 
-/* ---------- statistik (diperbarui real time) ---------- */
+/* ---------- statistik (bertab, diperbarui real time) ---------- */
+let statsTab = 'pop';
 function vStats() {
+  const tabs = [['pop', '👥 Penduduk'], ['att', '⚔️ Penyerang'], ['def', '🛡️ Bertahan'], ['raid', '💰 Perampok']];
+  const bar = '<div class="mapnav" style="justify-content:flex-start;flex-wrap:wrap;max-width:760px;margin:0 auto 10px">' +
+    tabs.map(([k, l]) => '<button class="' + (statsTab === k ? '' : 'sec') + '" onclick="statsTab=\'' + k + '\';render()">' + l + '</button>').join('') + '</div>';
+  const body = statsTab === 'pop' ? popBoard() :
+    statsTab === 'att' ? catBoard('A', 'att', '⚔️', 'Penyerang Terbanyak', 'prajurit musuh ditumbangkan saat menyerang') :
+    statsTab === 'def' ? catBoard('D', 'def', '🛡️', 'Bertahan Terbanyak', 'penyerang ditumbangkan saat bertahan') :
+    catBoard('R', 'raid', '💰', 'Perampok Terbanyak', 'total sumber daya yang dijarah');
+  return bar + body;
+}
+function popBoard() {
   const myPop = S.villages.reduce((a, v) => a + pop(v), 0);
   const all = S.bots.map(b => ({
     nm: b.nm, tag: b.tag, tribe: b.tribe, me: false,
@@ -291,30 +317,25 @@ function vStats() {
       '<td class="rt">' + fmtN(a.pop) + '</td>' +
       '<td class="rt green">' + (a.grD === null ? '—' : '+' + a.grD.toFixed(1)) + '</td></tr>';
   });
-  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>🏆 Peringkat Pemain — posisi Anda: #' + myRank + ' dari ' + all.length + ' · total ' + fmtN(totV) + ' desa <span style="float:right;font-weight:normal;color:#a33">🔴 langsung ' + new Date().toLocaleTimeString('id-ID') + '</span></h3><div class="bd">' +
+  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>👥 Peringkat Penduduk — posisi Anda: #' + myRank + ' dari ' + all.length + ' · total ' + fmtN(totV) + ' desa <span style="float:right;font-weight:normal;color:#a33">🔴 ' + new Date().toLocaleTimeString('id-ID') + '</span></h3><div class="bd">' +
     '<div class="scrollx"><table class="t"><tr><th class="ctr">#</th><th>Pemain</th><th class="ctr">Desa</th><th class="rt">Penduduk</th><th class="rt">±/hari</th></tr>' + rows + '</table></div>' +
-    '<p class="muted" style="margin-top:6px">⏱ Papan peringkat diperbarui <b>langsung</b> — bot tumbuh, berperang satu sama lain, dan mendirikan desa baru secara real time.</p></div></div>' +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap;max-width:760px;margin:10px auto 0">' +
-    topBoard('⚔️', 'Penyerang Terbanyak', 'A', 'att') +
-    topBoard('🛡️', 'Bertahan Terbanyak', 'D', 'def') +
-    topBoard('💰', 'Perampok Terbanyak', 'R', 'raid') +
-    '</div>';
+    '<p class="muted" style="margin-top:6px">⏱ Diperbarui <b>langsung</b> — bot tumbuh, berperang, dan mendirikan desa baru secara real time.</p></div></div>';
 }
-// Papan 10 besar: A = prajurit musuh ditumbangkan saat menyerang, D = saat bertahan, R = jarahan
-function topBoard(icon, title, bKey, pKey) {
-  const arr = S.bots.map(b => ({nm:b.nm, val:Math.round(b['st' + bKey] || 0), me:false}));
-  arr.push({nm:S.name, val:Math.round((S.stats && S.stats[pKey]) || 0), me:true});
+// catBoard: A = saat menyerang, D = saat bertahan, R = jarahan
+function catBoard(bKey, pKey, icon, title, ket) {
+  const arr = S.bots.map(b => ({nm:b.nm, tag:b.tag, tribe:b.tribe, val:Math.round(b['st' + bKey] || 0), me:false}));
+  arr.push({nm:S.name, tag:'', tribe:S.tribe, val:Math.round((S.stats && S.stats[pKey]) || 0), me:true});
   arr.sort((a, b) => b.val - a.val);
   const myR = arr.findIndex(a => a.me) + 1;
   let rows = '';
-  arr.slice(0, 10).forEach((a, i) => {
+  arr.slice(0, 100).forEach((a, i) => {
     rows += '<tr class="' + (a.me ? 'hl' : '') + '"><td class="ctr">' + (i + 1) + '</td>' +
-      '<td>' + esc(a.nm) + (a.me ? ' <b>(Anda)</b>' : '') + '</td><td class="rt">' + fmtN(a.val) + '</td></tr>';
+      '<td>' + TRIBE_DATA[a.tribe].icon + ' ' + esc(a.nm) + (a.tag ? ' <span class="tag">[' + a.tag + ']</span>' : '') + (a.me ? ' <b>(Anda)</b>' : '') + '</td>' +
+      '<td class="rt">' + fmtN(a.val) + '</td></tr>';
   });
-  return '<div class="box" style="flex:1 1 220px;min-width:0"><h3>' + icon + ' ' + title + '</h3><div class="bd">' +
-    '<table class="t">' + rows + '</table>' +
-    (myR > 10 ? '<p class="muted" style="margin-top:4px">Posisi Anda: #' + myR + ' (' + fmtN(arr[myR - 1].val) + ')</p>' : '') +
-    '</div></div>';
+  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>' + icon + ' ' + title + ' — posisi Anda: #' + myR + ' <span style="float:right;font-weight:normal;color:#a33">🔴 ' + new Date().toLocaleTimeString('id-ID') + '</span></h3><div class="bd">' +
+    '<p class="muted" style="margin-bottom:6px">Poin = ' + ket + '.</p>' +
+    '<div class="scrollx"><table class="t"><tr><th class="ctr">#</th><th>Pemain</th><th class="rt">Poin</th></tr>' + rows + '</table></div></div></div>';
 }
 
 /* ---------- Wilwatikta Plus (toko) ---------- */
@@ -335,6 +356,7 @@ function vPlus() {
     '<div class="box"><h3>⭐ Wilwatikta Plus</h3><div class="bd"><p class="muted">Tukar sumber daya desa aktif dengan <b>berkah berdurasi</b> (1–7 hari). Berkah berlaku untuk <b>semua desa</b> Anda. Bisa diperpanjang dengan membeli lagi.</p></div></div>' +
     card('prod', '🌾', 'Berkah Panen — +25% Produksi', 'Seluruh produksi kayu, lempung, besi, dan padi bertambah 25% selama masa berlaku.', plusProdActive(), S.plus.prod) +
     card('instant', '⚡', 'Tangan Dewata — Bangun Seketika', 'Selesaikan pembangunan apa pun (gedung, ladang, Candi) dalam sekejap. Klik ikon ⚡ pada antrian pembangunan.', plusInstantActive(), S.plus.instant) +
+    card('train', '🎯', 'Gemblengan Kilat — Latih Seketika', 'Selesaikan seluruh antrian pelatihan prajurit dalam sekejap. Klik tombol 🎯 pada panel Pelatihan.', plusTrainActive(), S.plus.train) +
     '</div>';
 }
 

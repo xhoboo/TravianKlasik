@@ -120,9 +120,10 @@ const BOT_TAGS = ['MJPHT','SGSRI','MTRAM','KDIRI','JNGGL','BLMBN','DEMAK','PJANG
 const OASIS_TYPES = [
   {icon:'🌳', nama:'Alas Jati',      bonus:{wood:0.5}},
   {icon:'🌾', nama:'Padang Ilalang', bonus:{crop:0.5}},
-  {icon:'⛰️', nama:'Gunung Kapur',   bonus:{iron:0.5}},
+  {icon:'⛰️', nama:'Gunung Kapur',   bonus:{clay:0.5}},
   {icon:'🏞️', nama:'Lembah Hijau',   bonus:{clay:0.25, crop:0.25}},
   {icon:'🐗', nama:'Alas Liar',      bonus:{crop:0.5}},
+  {icon:'🪨', nama:'Tambang Wesi',   bonus:{iron:0.5}},
 ];
 const MAX_OASIS_PER_VILLAGE = 3; // batas oasis yang bisa dikuasai tiap desa
 

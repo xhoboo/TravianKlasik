@@ -28,11 +28,14 @@ di browser tersebut (localStorage). Gunakan browser yang sama agar kemajuanmu te
   **Perampok Terbanyak** — kamu ikut dihitung di dalamnya.
 - **Ekspansi**: Kraton tk.10 → 3 Pemukim → dirikan desa baru di petak kosong.
 - **Peta luas 101×101** berisi 250 bot & 150 oasis.
-- **Taklukkan Oasis** (persis Travian): kalahkan pasukan alam liar di oasis untuk
-  mendapat bonus produksi **+25–50%** sesuai jenisnya (maks. 3 oasis per desa).
+- **Taklukkan Oasis** (persis Travian): kalahkan pasukan alam liar di oasis untuk bonus
+  produksi **+25–50%** sesuai jenisnya — Alas Jati (+50% kayu), Gunung Kapur (+50% lempung),
+  Tambang Wesi (+50% besi), Padang Ilalang/Alas Liar (+50% padi), Lembah Hijau (+25% lempung &
+  padi). Maks. 3 oasis per desa.
 - **⭐ Wilwatikta Plus** — beli berkah memakai sumber daya, berdurasi 1/3/7 hari:
   - 🌾 **Berkah Panen**: +25% seluruh produksi.
   - ⚡ **Tangan Dewata**: selesaikan pembangunan (gedung, ladang, Candi) seketika.
+  - 🎯 **Gemblengan Kilat**: selesaikan seluruh antrian pelatihan prajurit seketika.
 - **Bangunan tingkat tinggi**: ladang, Gudang, Lumbung Padi, Pasar, Penggergajian,
   Pembakaran Bata, Peleburan Besi, & Lesung Padi bisa naik hingga **tingkat 100**
   (kurva harga tetap rumus Travian sampai batas asli, lalu melandai agar tercapai).
@@ -40,9 +43,13 @@ di browser tersebut (localStorage). Gunakan browser yang sama agar kemajuanmu te
 - **🛕 Mode World Wonder**: bangun **Candi Agung** hingga tk.100 dan berlomba dengan bot —
   siapa pun (pemain/bot) yang menyelesaikannya **lebih dulu menang & dunia berakhir**,
   lalu bisa diulang. Atau pilih **mode bebas** tanpa Wonder dan tanpa batas waktu.
+  Saat kamu sedang offline, progres Candi para bot **melambat 100×** agar kamu tetap bisa mengejar.
 - **👤 Hingga 2 akun** dengan dunia berbeda (mis. satu Wonder, satu bebas). Ganti lewat
   **Bantuan → Keluar / Pilih Akun**.
-- **Statistik real time**: peringkat penduduk + papan Penyerang/Bertahan/Perampok Terbanyak.
+- **Statistik real time bertab**: peringkat Penduduk, Penyerang, Bertahan, dan Perampok
+  Terbanyak — masing-masing tab tersendiri.
+- **Laporan**: 10 per halaman, maks. 100 (yang lama otomatis terhapus saat ada yang baru).
+  Klik ⭐ untuk menyimpan laporan penting agar tidak ikut terhapus.
 - **Simulasi offline**: tutup game kapan saja — produksi, antrian, pertempuran, perlombaan
   Candi, dan pertumbuhan bot disusulkan saat dibuka lagi (maks. 7 hari).
 - **Mobile-first**, kecepatan server 1x–100x, ekspor/impor save. Save versi lama otomatis dimigrasi.

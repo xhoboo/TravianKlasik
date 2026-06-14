@@ -41,9 +41,9 @@ function newVillage(name, x, y) {
 function newGame(name, tribe, speed, diff, mode, slot) {
   usedVNames = null;
   S = {
-    v:4, slot: slot || 0, name: name || 'Pemain', tribe, speed, diff,
+    v:5, slot: slot || 0, name: name || 'Pemain', tribe, speed, diff,
     wonder: mode === 'wonder', wonderLvl: 0, candiQ: null, ended: null,
-    plus: {prod:0, instant:0},
+    plus: {prod:0, instant:0, train:0},
     botRaids: true,
     created: now(), last: now(), botAcc: 0,
     villages: [], active: 0,
@@ -62,7 +62,10 @@ function newGame(name, tribe, speed, diff, mode, slot) {
 // Harga per hari (dikali jumlah hari); dibayar dari desa aktif
 const PLUS_PROD_COST = [3000, 3000, 3000, 2000];
 const PLUS_INSTANT_COST = [4000, 3500, 4000, 2500];
-function plusCost(kind, days) { return (kind === 'prod' ? PLUS_PROD_COST : PLUS_INSTANT_COST).map(c => c * days); }
+const PLUS_TRAIN_COST = [3500, 3000, 4500, 2500];
+function plusCost(kind, days) {
+  return ({prod:PLUS_PROD_COST, instant:PLUS_INSTANT_COST, train:PLUS_TRAIN_COST}[kind]).map(c => c * days);
+}
 function buyPlus(kind, days) {
   const v = AV(), cost = plusCost(kind, days);
   if (!canAfford(v, cost)) { toast('Sumber daya tidak cukup!'); return false; }
@@ -283,6 +286,17 @@ function storeCap(lvl) {
 // Wilwatikta Plus
 const plusProdActive = () => S.plus && S.plus.prod > S.last;
 const plusInstantActive = () => S.plus && S.plus.instant > S.last;
+const plusTrainActive = () => S.plus && S.plus.train > S.last;
+// selesaikan SEMUA antrian pelatihan seketika (berkah Gemblengan Kilat)
+function finishAllTraining(v) {
+  if (!plusTrainActive()) { toast('Butuh berkah 🎯 Gemblengan Kilat yang aktif!'); return; }
+  let any = false;
+  for (const b in v.tq) {
+    v.tq[b].forEach(q => { v.troops[q.u] = (v.troops[q.u] || 0) + q.n; any = true; });
+    v.tq[b] = [];
+  }
+  if (any) { dirty = true; save(); toast('🎯 Semua pelatihan diselesaikan seketika!'); }
+}
 // Bonus oasis yang dikuasai sebuah desa
 function oasisBonus(v, boost) {
   const vi = S.villages.indexOf(v);
@@ -308,7 +322,7 @@ function troopUpkeep(v) {
     const ud = TR().units[k];
     u += ud.up * v.troops[k] * (ud.cav ? cavRed : 1);
   }
-  return u;
+  return Math.round(u);   // konsumsi padi selalu dibulatkan
 }
 function prodOf(v) {
   const p = {wood:0, clay:0, iron:0, crop:0};
@@ -500,14 +514,25 @@ function takeLoot(resObj, capacity, protect) {
 const sumU = u => Object.values(u).reduce((a, b) => a + b, 0);
 const sumL = l => Object.values(l).reduce((a, b) => a + b, 0);
 
-/* ---------- laporan ---------- */
+/* ---------- laporan (maks. 100; yang di-star ⭐ tidak ikut terhapus) ---------- */
+const REP_MAX = 100;
 function addReport(rep) {
-  rep.id = S.seq++; rep.time = S.last; rep.unread = true;
+  rep.id = S.seq++; rep.time = S.last; rep.unread = true; rep.star = false;
   S.reps.unshift(rep);
-  if (S.reps.length > 60) S.reps.length = 60;
+  // buang laporan TERLAMA yang tidak di-star sampai total <= 100
+  while (S.reps.length > REP_MAX) {
+    let idx = -1;
+    for (let i = S.reps.length - 1; i >= 0; i--) { if (!S.reps[i].star) { idx = i; break; } }
+    if (idx < 0) break;   // semua di-star — biarkan
+    S.reps.splice(idx, 1);
+  }
   S.unread++;
   if (!liveMode) offlineLog.reports++;
   dirty = true;
+}
+function toggleStar(id) {
+  const r = S.reps.find(rr => rr.id === id);
+  if (r) { r.star = !r.star; save(); }
 }
 
 /* ---------- pergerakan pasukan ---------- */
@@ -703,9 +728,12 @@ function botTick(dtSec, tNow) {
   const protect = (S.last - S.created < 8 * 3600) || totalPop < 80;
   for (const b of S.bots) {
     let total = 0;
-    // pesaing Candi (mode Wonder) — bangun Candi pelan-pelan setelah cukup besar
+    // pesaing Candi (mode Wonder) — bangun Candi pelan-pelan setelah cukup besar.
+    // Saat pemain sedang away (susulan offline), progres Candi bot melambat 100x
+    // supaya pemain tetap punya kesempatan mengejar perlombaan Candi.
     if (b.wcomp && botPop(b) > 400 && b.wl < CANDI_MAX) {
-      b.wl = Math.min(CANDI_MAX, b.wl + b.wrate * S.speed * dtH);
+      const awayFactor = liveMode ? 1 : 0.01;
+      b.wl = Math.min(CANDI_MAX, b.wl + b.wrate * S.speed * dtH * awayFactor);
     }
     for (const v of b.villages) {
       // tumbuh terus-menerus seperti pemain asli
@@ -891,7 +919,15 @@ function migrateV4() {
   S.oases.forEach(o => { if (o.def === undefined) o.def = ri(150, 900); if (o.owner === undefined) o.owner = -1; });
   S.v = 4;
 }
-function applyMigrations() { usedVNames = null; migrate(); migrateV3(); migrateV4(); }
+// v5: berkah Plus instant-pelatihan + laporan bisa di-star (maks. 100)
+function migrateV5() {
+  if (S.v >= 5) return;
+  if (S.plus && S.plus.train === undefined) S.plus.train = 0;
+  S.reps.forEach(r => { if (r.star === undefined) r.star = false; });
+  if (S.reps.length > 100) S.reps.length = 100;
+  S.v = 5;
+}
+function applyMigrations() { usedVNames = null; migrate(); migrateV3(); migrateV4(); migrateV5(); }
 
 /* ---------- multi-akun (maks. 2) ---------- */
 const OLD_KEY = 'travianKlasikOffline';
