@@ -27,10 +27,25 @@ di browser tersebut (localStorage). Gunakan browser yang sama agar kemajuanmu te
   desa & laju pertumbuhan) plus papan **Penyerang Terbanyak**, **Bertahan Terbanyak**, dan
   **Perampok Terbanyak** — kamu ikut dihitung di dalamnya.
 - **Ekspansi**: Kraton tk.10 → 3 Pemukim → dirikan desa baru di petak kosong.
-- **Simulasi offline**: tutup game kapan saja — produksi, antrian, pertempuran, dan
-  pertumbuhan bot disusulkan saat dibuka lagi (maks. 7 hari).
-- **Mobile-first**, kecepatan server 1x–100x, ekspor/impor save. Save dari versi lama
-  otomatis dimigrasi (termasuk penambahan bot hingga 250).
+- **Peta luas 101×101** berisi 250 bot & 150 oasis.
+- **Taklukkan Oasis** (persis Travian): kalahkan pasukan alam liar di oasis untuk
+  mendapat bonus produksi **+25–50%** sesuai jenisnya (maks. 3 oasis per desa).
+- **⭐ Wilwatikta Plus** — beli berkah memakai sumber daya, berdurasi 1/3/7 hari:
+  - 🌾 **Berkah Panen**: +25% seluruh produksi.
+  - ⚡ **Tangan Dewata**: selesaikan pembangunan (gedung, ladang, Candi) seketika.
+- **Bangunan tingkat tinggi**: ladang, Gudang, Lumbung Padi, Pasar, Penggergajian,
+  Pembakaran Bata, Peleburan Besi, & Lesung Padi bisa naik hingga **tingkat 100**
+  (kurva harga tetap rumus Travian sampai batas asli, lalu melandai agar tercapai).
+- **🐴 Sendang Turangga** (khas Majapahit): mengurangi konsumsi padi pasukan berkuda.
+- **🛕 Mode World Wonder**: bangun **Candi Agung** hingga tk.100 dan berlomba dengan bot —
+  siapa pun (pemain/bot) yang menyelesaikannya **lebih dulu menang & dunia berakhir**,
+  lalu bisa diulang. Atau pilih **mode bebas** tanpa Wonder dan tanpa batas waktu.
+- **👤 Hingga 2 akun** dengan dunia berbeda (mis. satu Wonder, satu bebas). Ganti lewat
+  **Bantuan → Keluar / Pilih Akun**.
+- **Statistik real time**: peringkat penduduk + papan Penyerang/Bertahan/Perampok Terbanyak.
+- **Simulasi offline**: tutup game kapan saja — produksi, antrian, pertempuran, perlombaan
+  Candi, dan pertumbuhan bot disusulkan saat dibuka lagi (maks. 7 hari).
+- **Mobile-first**, kecepatan server 1x–100x, ekspor/impor save. Save versi lama otomatis dimigrasi.
 
 ## Tips awal
 
@@ -38,3 +53,5 @@ di browser tersebut (localStorage). Gunakan browser yang sama agar kemajuanmu te
 2. Bangun Alun-Alun → Ksatrian → latih prajurit dasar.
 3. Rampok bot kecil terdekat lewat Peta (klik desa → 💰 Rampok) — jarahan mempercepat segalanya.
 4. Bangun Luweng & tembok sebelum pendudukmu lewat 80 (perlindungan pemula berakhir).
+5. Taklukkan oasis terdekat untuk dongkrak produksi, lalu beli ⭐ Plus saat sumber daya melimpah.
+6. Mode Wonder? Pakai ⚡ Tangan Dewata untuk menyelesaikan Candi seketika dan menyalip para bot.

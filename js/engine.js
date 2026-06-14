@@ -38,10 +38,12 @@ function newVillage(name, x, y) {
     tq: {barracks:[], stable:[], workshop:[], residence:[]},  // antrian latih
   };
 }
-function newGame(name, tribe, speed, diff) {
+function newGame(name, tribe, speed, diff, mode, slot) {
   usedVNames = null;
   S = {
-    v:2, name: name || 'Pemain', tribe, speed, diff,
+    v:4, slot: slot || 0, name: name || 'Pemain', tribe, speed, diff,
+    wonder: mode === 'wonder', wonderLvl: 0, candiQ: null, ended: null,
+    plus: {prod:0, instant:0},
     botRaids: true,
     created: now(), last: now(), botAcc: 0,
     villages: [], active: 0,
@@ -54,6 +56,52 @@ function newGame(name, tribe, speed, diff) {
   makeWorld();
   buildTIDX();
   save();
+}
+
+/* ---------- Wilwatikta Plus (beli dengan sumber daya) ---------- */
+// Harga per hari (dikali jumlah hari); dibayar dari desa aktif
+const PLUS_PROD_COST = [3000, 3000, 3000, 2000];
+const PLUS_INSTANT_COST = [4000, 3500, 4000, 2500];
+function plusCost(kind, days) { return (kind === 'prod' ? PLUS_PROD_COST : PLUS_INSTANT_COST).map(c => c * days); }
+function buyPlus(kind, days) {
+  const v = AV(), cost = plusCost(kind, days);
+  if (!canAfford(v, cost)) { toast('Sumber daya tidak cukup!'); return false; }
+  pay(v, cost);
+  const base = Math.max(S.last, S.plus[kind] || 0);
+  S.plus[kind] = base + days * 86400;
+  save();
+  return true;
+}
+
+/* ---------- Candi Agung / World Wonder ---------- */
+function candiCost(lvl) { return CANDI_BASE.map(c => r5(c * Math.pow(1.07, lvl))); }
+function candiTime(lvl) { return Math.max(20, 800 * Math.pow(1.035, lvl) / S.speed); }
+function startCandi() {
+  if (!S.wonder || S.ended) return false;
+  if (S.candiQ) { toast('Candi sedang dibangun!'); return false; }
+  if (S.wonderLvl >= CANDI_MAX) return false;
+  const v = AV(), cost = candiCost(S.wonderLvl);
+  if (!canAfford(v, cost)) { toast('Sumber daya tidak cukup!'); return false; }
+  pay(v, cost);
+  S.candiQ = {to: S.wonderLvl + 1, cost, done: now() + candiTime(S.wonderLvl)};
+  save();
+  return true;
+}
+function finishCandiNow() {
+  if (!S.candiQ || !plusInstantActive()) { toast('Butuh berkah ⚡ Tangan Dewata yang aktif!'); return; }
+  S.candiQ.done = S.last;
+}
+// progres Candi para bot pesaing
+const candiLeader = () => {
+  let best = null;
+  S.bots.forEach(b => { if (b.wcomp && (!best || b.wl > best.wl)) best = b; });
+  return best;
+};
+function checkEnd() {
+  if (!S.wonder || S.ended) return;
+  if (S.wonderLvl >= CANDI_MAX) { S.ended = {who:'me', nm:S.name, time:S.last}; dirty = true; return; }
+  const champ = S.bots.find(b => b.wcomp && b.wl >= CANDI_MAX);
+  if (champ) { S.ended = {who:'bot', nm:champ.nm, time:S.last}; dirty = true; }
 }
 
 /* ---------- dunia & bot ---------- */
@@ -99,10 +147,16 @@ function makeWorld() {
     if (!p) continue;
     S.bots.push(createBot(i + 1, p, Math.random(), usedNm, place));
   }
-  // oasis
-  for (let i = 0; i < 80; i++) {
+  // oasis (peta lebih luas -> lebih banyak; tiap oasis punya pasukan alam liar)
+  for (let i = 0; i < 150; i++) {
     const p = place(2, MAP_R);
-    if (p) S.oases.push({x:p.x, y:p.y, t: ri(0, OASIS_TYPES.length - 1)});
+    if (p) S.oases.push({x:p.x, y:p.y, t: ri(0, OASIS_TYPES.length - 1), def: ri(150, 900), owner: -1});
+  }
+  // mode Wonder: tunjuk sejumlah bot kuat sebagai pesaing pembangun Candi
+  if (S.wonder) {
+    S.bots.slice().sort((a, b) => botPop(b) - botPop(a)).slice(0, 14).forEach(b => {
+      b.wcomp = true; b.wl = 0; b.wrate = rnd(0.12, 0.42);  // tingkat Candi per jam-game (×kecepatan)
+    });
   }
 }
 // Cetak satu bot lengkap (dipakai pembuatan dunia & migrasi save lama)
@@ -212,6 +266,33 @@ function botSettle(b) {
   }
 }
 
+/* ---------- helper kurva lanjutan (di luar batas asli memakai faktor lebih landai) ---------- */
+// Eksponen tetap identik dengan Travian dalam rentang asli; di atas softLvl memakai faktor lebih landai
+function expSoft(base, lvl, softLvl, soft) {
+  if (lvl <= softLvl) return Math.pow(base, lvl);
+  return Math.pow(base, softLvl) * Math.pow(soft, lvl - softLvl);
+}
+function fieldProd(lvl) {
+  if (lvl <= 10) return FIELD_PROD[lvl];
+  return Math.round(FIELD_PROD[10] + (lvl - 10) * 70);  // lanjut linear, masuk akal
+}
+function storeCap(lvl) {
+  if (lvl <= 20) return STORE_CAP[lvl];
+  return Math.round(STORE_CAP[20] * Math.pow(1.2, lvl - 20));
+}
+// Wilwatikta Plus
+const plusProdActive = () => S.plus && S.plus.prod > S.last;
+const plusInstantActive = () => S.plus && S.plus.instant > S.last;
+// Bonus oasis yang dikuasai sebuah desa
+function oasisBonus(v, boost) {
+  const vi = S.villages.indexOf(v);
+  if (vi < 0) return;
+  S.oases.forEach(o => {
+    if (o.owner === vi) { const bn = OASIS_TYPES[o.t].bonus; for (const k in bn) boost[k] += bn[k]; }
+  });
+}
+const ownedOasisCount = vi => S.oases.filter(o => o.owner === vi).length;
+
 /* ---------- ekonomi desa ---------- */
 function pop(v) {
   let p = 0;
@@ -221,16 +302,22 @@ function pop(v) {
   return p;
 }
 function troopUpkeep(v) {
+  const cavRed = 1 - Math.min(0.5, bLvl(v, 'trough') * 0.0125);  // Sendang Turangga (Majapahit)
   let u = 0;
-  for (const k in v.troops) u += TR().units[k].up * v.troops[k];
+  for (const k in v.troops) {
+    const ud = TR().units[k];
+    u += ud.up * v.troops[k] * (ud.cav ? cavRed : 1);
+  }
   return u;
 }
 function prodOf(v) {
   const p = {wood:0, clay:0, iron:0, crop:0};
-  v.fields.forEach(f => p[FIELD_TYPES[f.t].res] += FIELD_PROD[f.lvl]);
+  v.fields.forEach(f => p[FIELD_TYPES[f.t].res] += fieldProd(f.lvl));
   const boost = {wood:0, clay:0, iron:0, crop:0};
   v.slots.forEach(s => { if (s && B[s.b].boost) boost[B[s.b].boost] += 0.05 * s.lvl; });
-  for (const k of RES_KEYS) p[k] = p[k] * (1 + boost[k]) * S.speed;
+  oasisBonus(v, boost);
+  const plusM = plusProdActive() ? 1.25 : 1;
+  for (const k of RES_KEYS) p[k] = p[k] * (1 + boost[k]) * plusM * S.speed;
   p.cropNet = p.crop - (pop(v) + troopUpkeep(v));
   return p;
 }
@@ -238,8 +325,8 @@ function capOf(v) {
   let store = 0, gran = 0;
   v.slots.forEach(s => {
     if (!s) return;
-    if (s.b === 'warehouse') store += STORE_CAP[s.lvl];
-    if (s.b === 'granary') gran += STORE_CAP[s.lvl];
+    if (s.b === 'warehouse') store += storeCap(s.lvl);
+    if (s.b === 'granary') gran += storeCap(s.lvl);
   });
   return {store: Math.max(800, store), gran: Math.max(800, gran)};
 }
@@ -258,10 +345,11 @@ const pay = (v, c) => RES_KEYS.forEach((k, i) => v.res[k] -= c[i]);
 const refund = (v, c) => { const cap = capOf(v); RES_KEYS.forEach((k, i) => v.res[k] = Math.min(k==='crop'?cap.gran:cap.store, v.res[k] + c[i])); };
 
 /* ---------- pembangunan ---------- */
-function fieldCost(t, lvl) { return FIELD_TYPES[t].cost.map(c => r5(c * Math.pow(1.67, lvl))); }
-function fieldTime(v, t, lvl) { return Math.max(15, FIELD_TYPES[t].k * Math.pow(1.5, lvl) * Math.pow(0.96, bLvl(v,'main')) / S.speed); }
-function bldCost(b, lvl) { return B[b].cost.map(c => r5(c * Math.pow(1.28, lvl))); }
-function bldTime(v, b, lvl) { return Math.max(15, B[b].t * Math.pow(1.22, lvl) * Math.pow(0.96, bLvl(v,'main')) / S.speed); }
+// Rentang asli (ladang ≤10, gedung ≤20) memakai faktor Travian; di atasnya faktor landai agar tetap tercapai
+function fieldCost(t, lvl) { return FIELD_TYPES[t].cost.map(c => r5(c * expSoft(1.67, lvl, 10, 1.12))); }
+function fieldTime(v, t, lvl) { return Math.max(15, FIELD_TYPES[t].k * expSoft(1.5, lvl, 10, 1.05) * Math.pow(0.96, bLvl(v,'main')) / S.speed); }
+function bldCost(b, lvl) { return B[b].cost.map(c => r5(c * expSoft(1.28, lvl, 20, 1.12))); }
+function bldTime(v, b, lvl) { return Math.max(15, B[b].t * expSoft(1.22, lvl, 20, 1.04) * Math.pow(0.96, bLvl(v,'main')) / S.speed); }
 function wallCost(lvl) { return WALL_DEF.cost.map(c => r5(c * Math.pow(1.28, lvl))); }
 function wallTime(v, lvl) { return Math.max(15, WALL_DEF.t * Math.pow(1.22, lvl) * Math.pow(0.96, bLvl(v,'main')) / S.speed); }
 function reqOk(v, req) {
@@ -281,7 +369,7 @@ function startBuild(v, kind, idx, b) {
   let cost, dur, to;
   if (kind === 'field') {
     const f = v.fields[idx];
-    if (f.lvl >= FIELD_MAX) return false;
+    if (f.lvl >= FIELD_MAX_EXT) return false;
     to = f.lvl + 1; cost = fieldCost(f.t, f.lvl); dur = fieldTime(v, f.t, f.lvl);
   } else if (kind === 'wall') {
     if (v.wall >= WALL_DEF.max) return false;
@@ -307,6 +395,16 @@ function cancelBuild(v, i) {
   refund(v, q.cost);
   v.bq.splice(i, 1);
   save();
+}
+// Wilwatikta Plus: selesaikan pembangunan seketika (gratis selama masa aktif)
+function finishNow(v, i) {
+  if (!plusInstantActive()) { toast('Butuh berkah ⚡ Tangan Dewata yang aktif!'); return; }
+  const q = v.bq[i];
+  if (!q) return;
+  q.done = S.last;
+  applyBuild(v, q);
+  v.bq.splice(i, 1);
+  dirty = true; save();
 }
 function applyBuild(v, q) {
   if (q.kind === 'field') v.fields[q.idx].lvl = q.to;
@@ -468,6 +566,9 @@ function processMov(m) {
     return;
   }
   if (m.kind === 'botraid') { resolveBotRaid(m); return; }
+  // serangan pemain -> oasis
+  const ot = TIDX[key(m.x, m.y)];
+  if (ot && ot.k === 'oasis') { resolveOasisAtk(m, ot.ref); return; }
   // serangan pemain -> petak
   const hit = botAt(m.x, m.y);
   if (!hit) {
@@ -551,6 +652,49 @@ function resolveBotRaid(m) {
   if (liveMode) toast(res.win ? '🔥 Desa Anda dirampok ' + esc(bot.nm) + '!' : '🛡️ Serangan ' + esc(bot.nm) + ' berhasil ditahan!');
 }
 
+// Penaklukan oasis (pasukan alam liar = kekuatan pertahanan datar)
+function resolveOasisAtk(m, o) {
+  const v = S.villages[m.vi];
+  const ob = OASIS_TYPES[o.t];
+  if (m.kind === 'scout') {
+    pushReturn(m, m.units, null);
+    addReport({type:'sys', title:'🕵️ Pengintaian ' + ob.nama + ' (' + m.x + '|' + m.y + ')',
+      body:'Kekuatan pasukan alam liar diperkirakan ±' + fmtN(o.def) + '. ' +
+        (o.owner === m.vi ? 'Oasis ini sudah Anda kuasai.' : o.owner >= 0 ? 'Oasis ini dikuasai desa lain.' : 'Belum dikuasai siapa pun.')});
+    return;
+  }
+  const aBonus = 1 + 0.015 * bLvl(v, 'smithy');
+  let aPow = 0; for (const u in m.units) aPow += m.units[u] * TR().units[u].att;
+  aPow = Math.max(1, aPow * aBonus);
+  const def = Math.max(1, o.def || 0);
+  const win = aPow > def;
+  const ratio = def / aPow;
+  const aLossFrac = win ? Math.min(0.9, Math.pow(ratio, 1.5) * 0.8) : 1;
+  const aLoss = {}; for (const u in m.units) aLoss[u] = Math.min(m.units[u], Math.round(m.units[u] * aLossFrac));
+  const surv = survivors(m.units, aLoss);
+  let extra = [];
+  if (win) {
+    const owned = ownedOasisCount(m.vi);
+    if (o.owner === m.vi) extra.push('Oasis ini memang sudah Anda kuasai.');
+    else if (owned >= MAX_OASIS_PER_VILLAGE) extra.push('⚠️ Desa ini sudah menguasai ' + MAX_OASIS_PER_VILLAGE + ' oasis (batas maksimum) — penaklukan gagal.');
+    else {
+      o.owner = m.vi; o.def = 0;
+      const bn = Object.entries(ob.bonus).map(([k, val]) => '+' + Math.round(val * 100) + '% ' + RES_NAMA[k]).join(', ');
+      extra.push('🌴 Oasis ditaklukkan! Desa Anda kini mendapat ' + bn + '.');
+      buildTIDX();
+    }
+  } else {
+    o.def = Math.max(0, def - Math.round(aPow * 0.6));  // pasukan alam berkurang walau gagal
+    extra.push('💀 Pasukan alam liar terlalu kuat. Coba lagi dengan pasukan lebih banyak.');
+  }
+  addReport({type:'battle', win,
+    title:(win ? '🌴 Oasis ditaklukkan' : '💀 Penaklukan gagal') + ' di ' + ob.nama + ' (' + m.x + '|' + m.y + ')',
+    att:{nm:S.name, vn:v.name, tribe:S.tribe, units:{...m.units}, loss:aLoss},
+    def:{nm:'Alam Liar', vn:ob.nama, tribe:S.tribe, loss:{}},
+    defBefore:{}, loot:null, extra, pow:[Math.round(aPow), def]});
+  pushReturn(m, surv, null);
+}
+
 /* ---------- AI bot (berdetak tiap 10 detik saat game terbuka) ---------- */
 function botTick(dtSec, tNow) {
   const d = DIFFS[S.diff];
@@ -559,6 +703,10 @@ function botTick(dtSec, tNow) {
   const protect = (S.last - S.created < 8 * 3600) || totalPop < 80;
   for (const b of S.bots) {
     let total = 0;
+    // pesaing Candi (mode Wonder) — bangun Candi pelan-pelan setelah cukup besar
+    if (b.wcomp && botPop(b) > 400 && b.wl < CANDI_MAX) {
+      b.wl = Math.min(CANDI_MAX, b.wl + b.wrate * S.speed * dtH);
+    }
     for (const v of b.villages) {
       // tumbuh terus-menerus seperti pemain asli
       v.pop += b.gr * S.speed / 24 * dtH * Math.max(0.05, 1 - v.pop / b.cap);
@@ -645,9 +793,16 @@ function sim(step) {
     due.forEach(processMov);
     dirty = true;
   }
+  // Candi Agung pemain
+  if (S.candiQ && S.candiQ.done <= t1) {
+    S.wonderLvl = S.candiQ.to;
+    if (liveMode) toast('🛕 Candi Agung mencapai tingkat ' + S.wonderLvl + '!');
+    S.candiQ = null; dirty = true;
+  }
   S.botAcc += step;
   const bt = liveMode ? 10 : 600;   // detak halus saat dibuka, kasar saat susulan offline
   while (S.botAcc >= bt) { botTick(bt, t1); S.botAcc -= bt; }
+  if (S.wonder && !S.ended) checkEnd();
   S.last = t1;
 }
 function tick() {
@@ -665,8 +820,7 @@ function tick() {
 }
 
 /* ---------- simpan / muat ---------- */
-const SAVE_KEY = 'travianKlasikOffline';
-function save() { if (S) localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }
+function save() { if (S) localStorage.setItem('wilwatiktaSlot' + (S.slot || 0), JSON.stringify(S)); }
 // Migrasi save versi lama: bot satu-desa -> multi-desa + jaminan nama unik
 function migrate() {
   if (S.v >= 2) return;
@@ -725,10 +879,63 @@ function migrateV3() {
   }
   S.v = 3;
 }
-function load() {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (!raw) return false;
-  try { S = JSON.parse(raw); usedVNames = null; migrate(); migrateV3(); buildTIDX(); return true; }
-  catch (e) { console.error(e); return false; }
+// v4: Wilwatikta Plus, oasis bisa ditaklukkan, mode Wonder, multi-akun
+function migrateV4() {
+  if (S.v >= 4) return;
+  if (!S.plus) S.plus = {prod:0, instant:0};
+  if (S.wonder === undefined) S.wonder = false;   // dunia lama = tanpa Wonder
+  if (S.wonderLvl === undefined) S.wonderLvl = 0;
+  if (S.candiQ === undefined) S.candiQ = null;
+  if (S.ended === undefined) S.ended = null;
+  if (S.slot === undefined) S.slot = 0;
+  S.oases.forEach(o => { if (o.def === undefined) o.def = ri(150, 900); if (o.owner === undefined) o.owner = -1; });
+  S.v = 4;
 }
-function hardReset() { localStorage.removeItem(SAVE_KEY); location.reload(); }
+function applyMigrations() { usedVNames = null; migrate(); migrateV3(); migrateV4(); }
+
+/* ---------- multi-akun (maks. 2) ---------- */
+const OLD_KEY = 'travianKlasikOffline';
+const ACTIVE_KEY = 'wilwatiktaActive';
+const MAX_ACCOUNTS = 2;
+const slotKey = s => 'wilwatiktaSlot' + s;
+function migrateOldKey() {
+  const old = localStorage.getItem(OLD_KEY);
+  if (old && !localStorage.getItem(slotKey(0))) {
+    localStorage.setItem(slotKey(0), old);
+    localStorage.removeItem(OLD_KEY);
+  }
+}
+function loadSlot(slot) {
+  const raw = localStorage.getItem(slotKey(slot));
+  if (!raw) return false;
+  try {
+    S = JSON.parse(raw); S.slot = slot; applyMigrations(); buildTIDX();
+    localStorage.setItem(ACTIVE_KEY, slot);
+    return true;
+  } catch (e) { console.error(e); return false; }
+}
+function deleteSlot(slot) {
+  localStorage.removeItem(slotKey(slot));
+  if (+localStorage.getItem(ACTIVE_KEY) === slot) localStorage.removeItem(ACTIVE_KEY);
+}
+function slotInfo(slot) {
+  const raw = localStorage.getItem(slotKey(slot));
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw);
+    let p = 0;
+    (o.villages || []).forEach(v => {
+      (v.fields || []).forEach(f => p += f.lvl);
+      (v.slots || []).forEach(s => { if (s && B[s.b]) p += B[s.b].pop * s.lvl; });
+      p += v.wall || 0;
+    });
+    return {name:o.name, tribe:o.tribe, wonder:!!o.wonder, ended:o.ended, villages:(o.villages||[]).length, pop:p};
+  } catch (e) { return {name:'(rusak)', broken:true}; }
+}
+function load() {  // dipertahankan untuk kompatibilitas — muat slot aktif
+  migrateOldKey();
+  const a = localStorage.getItem(ACTIVE_KEY);
+  if (a !== null && loadSlot(+a)) return true;
+  return false;
+}
+function hardReset() { if (S) deleteSlot(S.slot); S = null; location.reload(); }

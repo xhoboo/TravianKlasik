@@ -36,11 +36,14 @@ const B = {
   embassy:  {nama:'Bale Agung',        icon:'🏳️', cost:[180,130,150,80], t:2000, max:20, pop:3, desc:'Balai pertemuan para utusan. (Hiasan — aliansi tidak tersedia di mode offline.)'},
   cranny:   {nama:'Luweng',            icon:'🕳️', cost:[40,50,30,10],    t:350,  max:10, pop:0, multi:true, desc:'Lubang rahasia yang menyembunyikan sumber daya dari perampok. (Mataram: kapasitas ×1,5)'},
   residence:{nama:'Kraton',            icon:'🏰', cost:[580,460,350,180],t:3000, max:20, pop:1, req:{main:5}, desc:'Istana kecil — di tingkat 10 dapat melatih pemukim untuk mendirikan desa baru.'},
-  sawmill:  {nama:'Penggergajian Jati',icon:'🪚', cost:[520,380,290,90], t:3000, max:5,  pop:4, req:{main:5}, boost:'wood', desc:'+5% produksi kayu per tingkat.'},
-  brick:    {nama:'Pembakaran Bata',   icon:'🧱', cost:[440,480,320,50], t:3200, max:5,  pop:3, req:{main:5}, boost:'clay', desc:'+5% produksi lempung per tingkat.'},
-  foundry:  {nama:'Peleburan Besi',    icon:'🔥', cost:[200,450,510,120],t:3600, max:5,  pop:6, req:{main:5}, boost:'iron', desc:'+5% produksi besi per tingkat.'},
-  mill:     {nama:'Lesung Padi',       icon:'🌾', cost:[500,440,380,1240],t:3400,max:5,  pop:3, req:{main:5}, boost:'crop', desc:'+5% produksi padi per tingkat.'},
+  sawmill:  {nama:'Penggergajian Jati',icon:'🪚', cost:[520,380,290,90], t:3000, max:100,pop:4, req:{main:5}, boost:'wood', desc:'+5% produksi kayu per tingkat (bisa sampai tk.100).'},
+  brick:    {nama:'Pembakaran Bata',   icon:'🧱', cost:[440,480,320,50], t:3200, max:100,pop:3, req:{main:5}, boost:'clay', desc:'+5% produksi lempung per tingkat (bisa sampai tk.100).'},
+  foundry:  {nama:'Peleburan Besi',    icon:'🔥', cost:[200,450,510,120],t:3600, max:100,pop:6, req:{main:5}, boost:'iron', desc:'+5% produksi besi per tingkat (bisa sampai tk.100).'},
+  mill:     {nama:'Lesung Padi',       icon:'🌾', cost:[500,440,380,1240],t:3400,max:100,pop:3, req:{main:5}, boost:'crop', desc:'+5% produksi padi per tingkat (bisa sampai tk.100).'},
+  trough:   {nama:'Sendang Turangga',  icon:'🐴', cost:[780,420,660,300],t:3000, max:20, pop:2, tribe:'roman', req:{stable:3}, desc:'Sendang tempat kuda minum, khas Majapahit — mengurangi konsumsi padi pasukan berkuda (−1,25% per tingkat).'},
 };
+// Bangunan dengan kapasitas penyimpanan & yang bisa melampaui tk.20 (hingga 100)
+B.warehouse.max = 100; B.granary.max = 100; B.market.max = 100;
 const WALL_DEF = {cost:[70,90,170,70], t:1900, max:20, pop:0};
 const SLOT_COUNT = 20;
 
@@ -99,7 +102,8 @@ const U_RAM = 6, U_CATA = 7, U_SETTLER = 8;
 // Susunan 18 ladang awal (4 kayu, 4 lempung, 4 besi, 6 padi) — pola klasik
 const START_FIELDS = ['wood','crop','clay','iron','clay','crop','wood','crop','iron','wood','crop','clay','iron','wood','crop','iron','clay','crop'];
 
-const MAP_R = 35; // peta dari -35 s/d 35
+const MAP_R = 50; // peta 101x101 (dari -50 s/d 50)
+const FIELD_MAX_EXT = 100; // ladang sumber daya bisa ditingkatkan hingga tk.100
 
 const BOT_NAMES = ['Arjuna','Bima','Gatotkaca','Srikandi','Nakula','Sadewa','Krisna','Rama','Shinta','Hanoman','Wisanggeni','Antareja','Baladewa','Karna','Drupadi','Abimanyu','Sengkuni','Duryudana','Pandu','Kunti','Sumbadra','Larasati','Ekalaya','Aswatama','Parikesit','Wibisana','Sugriwa','Subali','Indrajit','Kumbakarna','Trijata','Lesmana','Janaka','Rahwana','xXWarriorXx','PetaniSakti','RajaPerang','SiPenjarah','PendekarMalam','BangJago','KsatriaBaja','SultanAgung','PangeranGelap','DewaPerang','SiBolang','AnakSultan','PrajuritKecil','PemburuHadiah','TukangRampok','JagoanKampung','SatriaPiningit','BocahTua','KakekLegenda','PetarungSenja','RatuNgamuk','MbahDukun','KopralJono','MasBro99','DikJarwo','PakLurah'];
 // Nama desa dibangun dari kombinasi awalan+akhiran (352+ nama unik) + nama klasik
@@ -112,13 +116,19 @@ const BOT_VNAMES = (() => {
 })();
 const BOT_TAGS = ['MJPHT','SGSRI','MTRAM','KDIRI','JNGGL','BLMBN','DEMAK','PJANG','GRDA','JAWA','',''];
 
+// Oasis yang bisa ditaklukkan memberi bonus produksi (persis Travian: +50% satu jenis, atau +25%+25%)
 const OASIS_TYPES = [
-  {icon:'🌳', nama:'Alas Jati'},
-  {icon:'🌾', nama:'Padang Ilalang'},
-  {icon:'⛰️', nama:'Gunung Kapur'},
-  {icon:'🏞️', nama:'Lembah Hijau'},
-  {icon:'🐗', nama:'Alas Liar'},
+  {icon:'🌳', nama:'Alas Jati',      bonus:{wood:0.5}},
+  {icon:'🌾', nama:'Padang Ilalang', bonus:{crop:0.5}},
+  {icon:'⛰️', nama:'Gunung Kapur',   bonus:{iron:0.5}},
+  {icon:'🏞️', nama:'Lembah Hijau',   bonus:{clay:0.25, crop:0.25}},
+  {icon:'🐗', nama:'Alas Liar',      bonus:{crop:0.5}},
 ];
+const MAX_OASIS_PER_VILLAGE = 3; // batas oasis yang bisa dikuasai tiap desa
+
+// Candi Agung (World Wonder) — tujuan menamatkan dunia mode Wonder
+const CANDI_MAX = 100;
+const CANDI_BASE = [6000, 6000, 6000, 4000];
 
 const DIFFS = {
   easy:   {nama:'Mudah',  def:0.5, raidCh:0.5, raidSz:0.6},

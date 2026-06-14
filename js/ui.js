@@ -2,6 +2,9 @@
 /* ================= ANTARMUKA ================= */
 let VIEW = {name:'dorf1', p:{}};
 let mapC = {x:0, y:0};
+let screen = 'accounts';   // layar saat S null: 'accounts' | 'setup'
+let pendingSlot = 0;       // slot yang sedang dibuat akunnya
+let endShown = false;      // layar kemenangan sudah ditampilkan?
 
 const $ = id => document.getElementById(id);
 function go(name, p) { VIEW = {name, p: p || {}}; render(); }
@@ -25,9 +28,9 @@ function cd(ts) { return '<span class="cdwrap" data-cd="' + ts + '">' + fmtT(ts 
 
 /* ---------- kerangka ---------- */
 function render() {
-  if (!S) { renderSetup(); return; }
+  if (!S) { if (screen === 'setup') renderSetup(); else renderAccounts(); return; }
   renderChrome();
-  const f = {dorf1:vDorf1, dorf2:vDorf2, map:vMap, tile:vTile, rally:vRally, reports:vReports, report:vReport, stats:vStats, help:vHelp}[VIEW.name] || vDorf1;
+  const f = {dorf1:vDorf1, dorf2:vDorf2, map:vMap, tile:vTile, rally:vRally, reports:vReports, report:vReport, stats:vStats, plus:vPlus, candi:vCandi, help:vHelp}[VIEW.name] || vDorf1;
   $('content').innerHTML = f();
   dirty = false;
 }
@@ -35,8 +38,11 @@ function renderChrome() {
   const incoming = S.movs.filter(m => m.kind === 'botraid').length;
   const tabs = [
     ['dorf1','Sumber Daya'], ['dorf2','Pusat Desa'], ['map','Peta'], ['rally','Pasukan'],
-    ['stats','Statistik'], ['reports','Laporan' + (S.unread ? '<span class="badge">' + S.unread + '</span>' : '')], ['help','Bantuan'],
+    ['stats','Statistik'], ['reports','Laporan' + (S.unread ? '<span class="badge">' + S.unread + '</span>' : '')],
+    ['plus','⭐ Plus'],
   ];
+  if (S.wonder) tabs.push(['candi','🛕 Candi ' + Math.floor(S.wonderLvl) + '/' + CANDI_MAX]);
+  tabs.push(['help','Bantuan']);
   $('nav').innerHTML = tabs.map(([k, label]) =>
     '<div class="tab ' + (VIEW.name === k || (VIEW.name==='report'&&k==='reports') || (VIEW.name==='tile'&&k==='map') ? 'act' : '') + '" onclick="go(\'' + k + '\')">' + label + '</div>'
   ).join('');
@@ -53,7 +59,12 @@ function renderChrome() {
     '<span>👥 Penduduk: <b>' + pop(v) + '</b></span>' +
     (incoming ? '<span class="atkwarn">⚔️ ' + incoming + ' serangan masuk!</span>' : '') +
     '<span style="margin-left:auto" class="muted">' + esc(S.name) + ' — ' + TR().icon + ' ' + TR().nama + '</span>';
-  $('hinfo').innerHTML = 'Kecepatan <b>' + S.speed + 'x</b> · Tingkat kesulitan bot: <b>' + DIFFS[S.diff].nama + '</b>';
+  const plusTags = [];
+  if (plusProdActive()) plusTags.push('🌾+25% ' + fmtT(S.plus.prod - S.last));
+  if (plusInstantActive()) plusTags.push('⚡ ' + fmtT(S.plus.instant - S.last));
+  $('hinfo').innerHTML = 'Kecepatan <b>' + S.speed + 'x</b> · Bot: <b>' + DIFFS[S.diff].nama + '</b>' +
+    (S.wonder ? ' · 🛕 Mode Wonder' : ' · ♾️ Bebas') +
+    (plusTags.length ? '<br><span style="color:#ffe9a8">⭐ ' + plusTags.join(' · ') + '</span>' : '');
   renderBar();
 }
 function renderBar() {
@@ -80,6 +91,7 @@ function sideQueue(v) {
   v.bq.forEach((q, i) => {
     const nm = q.kind === 'field' ? FIELD_TYPES[v.fields[q.idx].t].nama : q.kind === 'wall' ? TR().wallName : B[q.b].nama;
     h += '<div class="qrow"><span>' + nm + ' → tk.' + q.to + '</span><span>' + cd(q.done) +
+      (plusInstantActive() ? ' <a onclick="finishNow(AV(),' + i + ');render()" title="Selesaikan seketika">⚡</a>' : '') +
       ' <a onclick="cancelBuild(AV(),' + i + ');render()" title="Batalkan">✖</a></span></div>';
   });
   h += '</div></div>';
@@ -149,8 +161,8 @@ function vDorf1() {
 function openField(i) {
   const v = AV(), f = v.fields[i], ft = FIELD_TYPES[f.t];
   const cost = fieldCost(f.t, f.lvl), dur = fieldTime(v, f.t, f.lvl);
-  const maxed = f.lvl >= FIELD_MAX;
-  const cur = FIELD_PROD[f.lvl] * S.speed, nxt = (FIELD_PROD[f.lvl + 1] || 0) * S.speed;
+  const maxed = f.lvl >= FIELD_MAX_EXT;
+  const cur = fieldProd(f.lvl) * S.speed, nxt = fieldProd(f.lvl + 1) * S.speed;
   openModal('<h2><span class="x" onclick="closeModal()">✖</span>' + ft.icon + ' ' + ft.nama + ' — tingkat ' + f.lvl + '</h2><div class="mbd">' +
     '<p>Produksi sekarang: <b>' + fmtN(cur) + '/jam</b>' + (maxed ? '' : ' → tingkat ' + (f.lvl + 1) + ': <b class="green">' + fmtN(nxt) + '/jam</b>') + '</p><br>' +
     (maxed ? '<p class="muted">Sudah tingkat maksimum.</p>' :
@@ -203,8 +215,8 @@ function openSlot(i) {
   if (b === 'rally') special = '<br><button class="sec" onclick="closeModal();go(\'rally\')">🚩 Buka Titik Kumpul</button>';
   openModal('<h2><span class="x" onclick="closeModal()">✖</span>' + def.icon + ' ' + def.nama + ' — tingkat ' + s.lvl + '</h2><div class="mbd">' +
     '<p class="muted">' + def.desc + '</p><br>' +
-    (maxed ? '<p class="muted">Sudah tingkat maksimum.</p>' :
-      '<p>Biaya tingkat ' + (s.lvl + 1) + ': ' + costHtml(v, cost) + '</p><p>Waktu: <b>' + fmtT(dur) + '</b></p><br>' +
+    (maxed ? '<p class="muted">Sudah tingkat maksimum (tk.' + def.max + ').</p>' :
+      '<p>Biaya tingkat ' + (s.lvl + 1) + ': ' + costHtml(v, cost) + '</p><p>Waktu: <b>' + fmtT(dur) + '</b>' + (plusInstantActive() ? ' <span style="color:#c80">⚡ bisa diselesaikan seketika di antrian</span>' : '') + '</p><br>' +
       '<button ' + (canAfford(v, cost) && queueFree(v, false) ? '' : 'disabled') + ' onclick="if(startBuild(AV(),\'slot\',' + i + '))(closeModal(),render())">⬆️ Tingkatkan ke ' + (s.lvl + 1) + '</button>') +
     special + '</div>');
 }
@@ -215,6 +227,7 @@ function openBuildList(i) {
   let rows = '';
   for (const b in B) {
     if (have[b] && !B[b].multi) continue;
+    if (B[b].tribe && B[b].tribe !== S.tribe) continue;  // mis. Sendang Turangga khusus Majapahit
     const ok = reqOk(v, B[b].req);
     const cost = bldCost(b, 0);
     rows += '<div class="unitrow"><span class="uic">' + B[b].icon + '</span><div style="flex:1"><b>' + B[b].nama + '</b><br>' +

@@ -109,7 +109,7 @@ function vMap() {
       if (t) {
         if (t.k === 'me') { cls = 'm-me'; ic = '🏰'; nm = esc(t.ref.name); }
         else if (t.k === 'bot') { cls = 'm-bot tr-' + t.ref.tribe; ic = '🏘️'; nm = esc(t.bv.vn); }
-        else { cls = 'm-oasis'; ic = OASIS_TYPES[t.ref.t].icon; }
+        else { cls = 'm-oasis'; ic = OASIS_TYPES[t.ref.t].icon + (t.ref.owner >= 0 ? '⭐' : ''); if (t.ref.owner === S.active) cls += ' m-me'; }
       }
       rows += '<td class="' + cls + '" onclick="go(\'tile\',{x:' + x + ',y:' + y + '})" title="(' + x + '|' + y + ')">' +
         (ic ? '<span class="mi">' + ic + '</span>' : '') + (nm ? '<span class="mn">' + nm + '</span>' : '') + '</td>';
@@ -151,7 +151,19 @@ function vTile() {
       '<button onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'raid\'})">💰 Rampok</button> ' +
       '<button class="sec" onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'scout\'})">🕵️ Intai</button>';
   } else if (t && t.k === 'oasis') {
-    h += '<p>' + OASIS_TYPES[t.ref.t].icon + ' <b>' + OASIS_TYPES[t.ref.t].nama + '</b></p><p class="muted">Wilayah liar yang belum dijamah.</p>';
+    const o = t.ref, ob = OASIS_TYPES[o.t];
+    const bn = Object.entries(ob.bonus).map(([k, val]) => '+' + Math.round(val * 100) + '% ' + RES_ICON[k] + ' ' + RES_NAMA[k]).join(', ');
+    h += '<p>' + ob.icon + ' <b>' + ob.nama + '</b></p><p>Bonus jika dikuasai: <b class="green">' + bn + '</b></p>';
+    if (o.owner === S.active) {
+      h += '<p class="green">⭐ Oasis ini sudah dikuasai desa Anda — bonus aktif.</p>';
+    } else if (o.owner >= 0) {
+      h += '<p class="muted">Sudah dikuasai oleh ' + esc(S.villages[o.owner] ? S.villages[o.owner].name : 'desa lain') + '.</p>';
+    } else {
+      h += '<p class="muted">Kekuatan pasukan alam liar: ±<b>' + fmtN(o.def) + '</b>. Kalahkan mereka untuk menguasai oasis (maks. ' + MAX_OASIS_PER_VILLAGE + ' oasis per desa).</p>' +
+        '<p class="muted">Desa aktif menguasai ' + ownedOasisCount(S.active) + '/' + MAX_OASIS_PER_VILLAGE + ' oasis.</p><br>' +
+        '<button onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'atk\'})">⚔️ Taklukkan Oasis</button> ' +
+        '<button class="sec" onclick="go(\'rally\',{x:' + x + ',y:' + y + ',kind:\'scout\'})">🕵️ Intai</button>';
+    }
   } else {
     const settlers = v.troops[U_SETTLER] || 0;
     h += '<p>🌿 <b>Padang rumput kosong</b></p><p class="muted">Petak ini bisa dijadikan desa baru (butuh 3 Pemukim dari ' + B.residence.nama + ' tk.10).</p><br>' +
@@ -305,6 +317,106 @@ function topBoard(icon, title, bKey, pKey) {
     '</div></div>';
 }
 
+/* ---------- Wilwatikta Plus (toko) ---------- */
+function vPlus() {
+  const v = AV();
+  const card = (kind, icon, title, desc, active, expTs) => {
+    let h = '<div class="box"><h3>' + icon + ' ' + title + '</h3><div class="bd">' +
+      '<p class="muted">' + desc + '</p>' +
+      (active ? '<p class="green">✅ Aktif — sisa ' + cd(expTs) + '</p>' : '') + '<br>';
+    [1, 3, 7].forEach(d => {
+      const cost = plusCost(kind, d);
+      h += '<div class="qrow" style="flex-wrap:wrap;gap:6px"><span><b>' + d + ' hari</b> &nbsp;' + costHtml(v, cost) + '</span>' +
+        '<button ' + (canAfford(v, cost) ? '' : 'disabled') + ' onclick="if(buyPlus(\'' + kind + '\',' + d + ')){render();toast(\'⭐ Berkah ' + d + ' hari dibeli!\')}">Beli</button></div>';
+    });
+    return h + '</div></div>';
+  };
+  return '<div style="max-width:620px;margin:0 auto">' +
+    '<div class="box"><h3>⭐ Wilwatikta Plus</h3><div class="bd"><p class="muted">Tukar sumber daya desa aktif dengan <b>berkah berdurasi</b> (1–7 hari). Berkah berlaku untuk <b>semua desa</b> Anda. Bisa diperpanjang dengan membeli lagi.</p></div></div>' +
+    card('prod', '🌾', 'Berkah Panen — +25% Produksi', 'Seluruh produksi kayu, lempung, besi, dan padi bertambah 25% selama masa berlaku.', plusProdActive(), S.plus.prod) +
+    card('instant', '⚡', 'Tangan Dewata — Bangun Seketika', 'Selesaikan pembangunan apa pun (gedung, ladang, Candi) dalam sekejap. Klik ikon ⚡ pada antrian pembangunan.', plusInstantActive(), S.plus.instant) +
+    '</div>';
+}
+
+/* ---------- Candi Agung (World Wonder) ---------- */
+function pbar(pct) {
+  return '<div style="background:#ddd;border-radius:6px;height:16px;overflow:hidden;border:1px solid #b8ae82;margin:4px 0">' +
+    '<div style="height:16px;width:' + pct + '%;background:linear-gradient(#d8b84c,#9c7a20)"></div></div>';
+}
+function vCandi() {
+  if (!S.wonder) return '<div class="box" style="max-width:600px;margin:0 auto"><div class="bd">Akun ini bermain <b>tanpa World Wonder</b> (mode bebas tanpa batas waktu).</div></div>';
+  const v = AV(), lvl = S.wonderLvl, maxed = lvl >= CANDI_MAX;
+  const cost = candiCost(lvl), dur = candiTime(lvl);
+  let h = '<div class="box" style="max-width:680px;margin:0 auto"><h3>🛕 Candi Agung — tingkat ' + Math.floor(lvl) + ' / ' + CANDI_MAX + '</h3><div class="bd">' +
+    '<p class="muted">Tujuan akhir dunia ini: bangun Candi Agung hingga tingkat ' + CANDI_MAX + '. Pemain atau bot <b>pertama</b> yang menyelesaikannya menjadi pemenang — lalu dunia berakhir dan bisa diulang.</p>' +
+    pbar(Math.floor(lvl / CANDI_MAX * 100)) + '<br>';
+  if (S.candiQ) {
+    h += '<p>🔨 Membangun tingkat ' + S.candiQ.to + ' — ' + cd(S.candiQ.done) +
+      (plusInstantActive() ? ' <a onclick="finishCandiNow();render()" title="Selesaikan seketika">⚡</a>' : '') + '</p>';
+  } else if (maxed) {
+    h += '<p class="green"><b>🎉 Candi Agung telah sempurna! Anda memenangkan dunia ini.</b></p>';
+  } else {
+    h += '<p>Biaya tingkat ' + (lvl + 1) + ': ' + costHtml(v, cost) + '</p><p>Waktu: <b>' + fmtT(dur) + '</b></p>' +
+      '<p class="muted">Dibangun memakai sumber daya desa aktif. Bangun terus tanpa henti untuk menyalip para bot!</p><br>' +
+      '<button ' + (canAfford(v, cost) ? '' : 'disabled') + ' onclick="if(startCandi()){render();toast(\'🛕 Pembangunan Candi dimulai\')}">⬆️ Bangun tingkat ' + (lvl + 1) + '</button>';
+  }
+  h += '</div></div>';
+  const comps = S.bots.filter(b => b.wcomp).map(b => ({nm:b.nm, wl:b.wl, me:false}));
+  comps.push({nm:S.name, wl:lvl, me:true});
+  comps.sort((a, b) => b.wl - a.wl);
+  const rows = comps.slice(0, 15).map((c, i) =>
+    '<tr class="' + (c.me ? 'hl' : '') + '"><td class="ctr">' + (i + 1) + '</td><td>' + esc(c.nm) + (c.me ? ' <b>(Anda)</b>' : '') +
+    '</td><td style="width:45%">' + pbar(Math.floor(c.wl / CANDI_MAX * 100)) + '</td><td class="rt">' + Math.floor(c.wl) + '</td></tr>').join('');
+  h += '<div class="box" style="max-width:680px;margin:10px auto 0"><h3>🏆 Perlombaan Candi (real time)</h3><div class="bd">' +
+    '<div class="scrollx"><table class="t"><tr><th class="ctr">#</th><th>Pembangun</th><th>Progres</th><th class="rt">Tk.</th></tr>' + rows + '</table></div></div></div>';
+  return h;
+}
+
+/* ---------- layar kemenangan / akhir dunia ---------- */
+function showEndScreen() {
+  const e = S.ended, menang = e.who === 'me';
+  openModal('<h2>' + (menang ? '🎉 KEMENANGAN!' : '🏳️ DUNIA BERAKHIR') + '</h2><div class="mbd">' +
+    '<p style="font-size:14px">' + (menang ?
+      'Selamat! <b>Candi Agung</b> Anda telah sempurna. Anda memenangkan dunia ini!' :
+      'Bot <b>' + esc(e.nm) + '</b> menyelesaikan Candi Agung lebih dulu. Dunia ini berakhir.') + '</p><br>' +
+    '<p class="muted">Anda dapat memulai dunia baru di slot ini, atau kembali memilih akun.</p><br>' +
+    '<button onclick="restartWorld()">🔄 Mulai Dunia Baru</button> ' +
+    '<button class="sec" onclick="closeModal();gotoAccounts()">👤 Pilih Akun</button></div>');
+}
+function restartWorld() {
+  const slot = S.slot;
+  deleteSlot(slot);
+  S = null; endShown = false; pendingSlot = slot; screen = 'setup';
+  closeModal(); render();
+}
+
+/* ---------- pilih akun (maks. 2) ---------- */
+function renderAccounts() {
+  $('nav').innerHTML = ''; $('subbar').innerHTML = ''; $('resbar').innerHTML = ''; $('hinfo').innerHTML = '';
+  migrateOldKey();
+  let cards = '';
+  for (let s = 0; s < MAX_ACCOUNTS; s++) {
+    const info = slotInfo(s);
+    if (info && !info.broken) {
+      cards += '<div class="tribeopt" style="justify-content:space-between;cursor:default"><div>' +
+        '<b>' + esc(info.name) + '</b> · ' + TRIBE_DATA[info.tribe].icon + ' ' + TRIBE_DATA[info.tribe].nama + '<br>' +
+        '<span class="muted">' + info.villages + ' desa · ' + fmtN(info.pop) + ' penduduk · ' +
+        (info.wonder ? '🛕 Mode Wonder' : '♾️ Bebas') + (info.ended ? ' · <span class="red">tamat</span>' : '') + '</span></div>' +
+        '<div style="white-space:nowrap"><button onclick="enterSlot(' + s + ')">▶ Main</button> ' +
+        '<button class="danger" onclick="if(confirm(\'Hapus akun ini secara permanen?\'))delAccount(' + s + ')">🗑</button></div></div>';
+    } else {
+      cards += '<div class="tribeopt" style="justify-content:center;border-style:dashed" onclick="newAccount(' + s + ')">' +
+        '<b>➕ Buat Akun Baru (slot ' + (s + 1) + ')</b></div>';
+    }
+  }
+  $('content').innerHTML = '<div class="setupcard"><h2>👤 Pilih Akun Wilwatikta</h2>' +
+    '<p class="muted">Anda dapat memiliki hingga ' + MAX_ACCOUNTS + ' akun dengan dunia berbeda — misalnya satu mode <b>World Wonder</b> (ada Candi & akhir dunia) dan satu mode <b>bebas</b> tanpa batas waktu.</p><br>' + cards + '</div>';
+}
+function enterSlot(s) { if (loadSlot(s)) { endShown = false; VIEW = {name:'dorf1', p:{}}; startGame(true); } }
+function newAccount(s) { pendingSlot = s; screen = 'setup'; render(); }
+function delAccount(s) { deleteSlot(s); render(); }
+function gotoAccounts() { if (S) save(); S = null; endShown = false; screen = 'accounts'; render(); }
+
 /* ---------- bantuan ---------- */
 function vHelp() {
   return '<div class="box" style="max-width:720px;margin:0 auto"><h3>📖 Bantuan & Pengaturan</h3><div class="bd">' +
@@ -315,12 +427,18 @@ function vHelp() {
     '<li><b>Merampok:</b> buka Peta, klik desa bot, pilih 💰 Rampok. Jarahan adalah kunci berkembang cepat!</li>' +
     '<li><b>Bertahan:</b> bot sesekali merampok Anda (mereka juga saling serang). Bangun ' + TR().wallName + ', Luweng, dan prajurit bertahan.</li>' +
     '<li><b>Ekspansi:</b> Kraton tk.10 → latih 3 Pemukim → klik petak kosong di peta → dirikan desa baru.</li>' +
+    '<li><b>Oasis:</b> klik oasis di peta → ⚔️ Taklukkan (kalahkan pasukan alam liar) untuk bonus +25–50% produksi (maks. ' + MAX_OASIS_PER_VILLAGE + ' per desa).</li>' +
+    '<li><b>⭐ Plus:</b> beli Berkah Panen (+25% produksi) atau Tangan Dewata (bangun seketika) memakai sumber daya, 1–7 hari.</li>' +
+    (S.wonder ? '<li><b>🛕 Candi Agung:</b> bangun Candi hingga tk.' + CANDI_MAX + ' lebih dulu dari bot untuk memenangkan & menamatkan dunia.</li>' : '<li><b>♾️ Mode bebas:</b> akun ini tanpa World Wonder — main tanpa batas waktu.</li>') +
     '<li><b>Offline:</b> game terus berjalan saat ditutup (maks. 7 hari) — desa & bot tetap tumbuh, serangan tetap terjadi.</li></ul>' +
+    '<h3>Akun</h3>' +
+    '<div class="frow"><label>Ganti / keluar akun</label><button class="sec" onclick="gotoAccounts()">👤 Keluar / Pilih Akun</button></div>' +
+    '<p class="muted">Maks. ' + MAX_ACCOUNTS + ' akun dengan dunia berbeda. Kemajuan tersimpan otomatis per akun.</p>' +
     '<h3>Pengaturan</h3>' +
     '<div class="frow"><label>Rampokan bot</label><label style="width:auto;font-weight:normal"><input type="checkbox" ' + (S.botRaids ? 'checked' : '') + ' onchange="S.botRaids=this.checked;save()"> aktif (matikan untuk mode damai)</label></div>' +
     '<div class="frow"><label>Ekspor save</label><button class="sec" onclick="doExport()">Salin data save</button></div>' +
     '<div class="frow"><label>Impor save</label><textarea id="impTxt" rows="2" style="flex:1"></textarea><button class="sec" onclick="doImport()">Muat</button></div>' +
-    '<div class="frow"><label>Mulai ulang</label><button class="danger" onclick="if(confirm(\'Hapus seluruh kemajuan dan mulai dari awal?\'))hardReset()">⚠️ Reset Dunia</button></div>' +
+    '<div class="frow"><label>Mulai ulang</label><button class="danger" onclick="if(confirm(\'Hapus akun ini dan mulai dari awal?\'))hardReset()">⚠️ Reset Akun Ini</button></div>' +
     '</div></div>';
 }
 function doExport() {
@@ -332,7 +450,8 @@ function doImport() {
   try {
     const obj = JSON.parse(document.getElementById('impTxt').value);
     if (!obj.villages) throw new Error('format salah');
-    S = obj; buildTIDX(); save(); render();
+    const slot = S ? S.slot : 0;
+    S = obj; S.slot = slot; applyMigrations(); buildTIDX(); save(); render();
     toast('💾 Save berhasil dimuat!');
   } catch (e) { toast('❌ Data save tidak valid!'); }
 }
@@ -346,19 +465,26 @@ function renderSetup() {
     return '<div class="tribeopt ' + (setupTribe === t ? 'sel' : '') + '" onclick="setupTribe=\'' + t + '\';renderSetup()">' +
       '<span class="tic">' + td.icon + '</span><div><b>' + td.nama + '</b><br><span class="muted">' + td.desc + '</span></div></div>';
   };
-  $('content').innerHTML = '<div class="setupcard"><h2>⚔️ Selamat datang di Wilwatikta!</h2>' +
+  $('content').innerHTML = '<div class="setupcard"><h2>⚔️ Akun Baru — Wilwatikta</h2>' +
     '<p class="muted">Bangun desamu di tanah Jawa, latih prajurit, rampok tetangga — di dunia berisi 250 bot yang terus tumbuh, saling berperang, dan berekspansi seperti pemain asli. Bergaya Travian Klasik, semuanya offline, tersimpan otomatis di browser ini.</p><br>' +
     '<div class="frow"><label>Nama pemain</label><input type="text" id="pn" value="Pemain" maxlength="16"></div>' +
     '<div class="frow"><label>Kerajaan</label></div>' + opt('roman') + opt('teuton') + opt('gaul') +
+    '<div class="frow"><label>Mode permainan</label></div>' +
+    '<div class="tribeopt" style="cursor:default"><div><label style="font-weight:bold"><input type="radio" name="mode" value="wonder" checked> 🛕 World Wonder</label><br><span class="muted">Ada Candi Agung untuk ditamatkan. Pemain/bot pertama yang menyelesaikan Candi menang & dunia berakhir.</span></div></div>' +
+    '<div class="tribeopt" style="cursor:default"><div><label style="font-weight:bold"><input type="radio" name="mode" value="sandbox"> ♾️ Tanpa Wonder (Bebas)</label><br><span class="muted">Bermain santai tanpa batas waktu dan tanpa kondisi menang.</span></div></div>' +
     '<div class="frow"><label>Kecepatan server</label><select id="ps"><option value="1">1x (klasik, sangat lambat)</option><option value="3" selected>3x (disarankan)</option><option value="5">5x (cepat)</option><option value="10">10x (sangat cepat)</option><option value="100">100x (turbo gila!)</option></select></div>' +
     '<div class="frow"><label>Kesulitan bot</label><select id="pd"><option value="easy" selected>Mudah (disarankan)</option><option value="normal">Normal</option><option value="hard">Sulit</option></select></div><br>' +
-    '<button style="font-size:14px;padding:8px 24px" onclick="doStart()">🏰 Mulai Bermain!</button></div>';
+    '<button style="font-size:14px;padding:8px 24px" onclick="doStart()">🏰 Mulai Bermain!</button> ' +
+    '<button class="sec" onclick="screen=\'accounts\';render()">« kembali</button></div>';
 }
 function doStart() {
   const name = document.getElementById('pn').value.trim() || 'Pemain';
   const speed = +document.getElementById('ps').value;
   const diff = document.getElementById('pd').value;
-  newGame(name, setupTribe, speed, diff);
+  const mode = document.querySelector('input[name=mode]:checked').value;
+  newGame(name, setupTribe, speed, diff, mode, pendingSlot);
+  localStorage.setItem(ACTIVE_KEY, pendingSlot);
+  endShown = false;
   go('dorf1');
   toast('🏰 Selamat datang di Wilwatikta, Kepala Desa ' + esc(name) + '! Mulailah dengan meningkatkan sawah & ladang.');
 }
