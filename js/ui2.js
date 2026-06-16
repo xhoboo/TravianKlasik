@@ -111,21 +111,45 @@ function vMap() {
         else if (t.k === 'bot') { cls = 'm-bot tr-' + t.ref.tribe; ic = '🏘️'; nm = esc(t.bv.vn); }
         else { cls = 'm-oasis'; ic = OASIS_TYPES[t.ref.t].icon + (t.ref.owner >= 0 ? '⭐' : ''); if (t.ref.owner === S.active) cls += ' m-me'; }
       }
-      rows += '<td class="' + cls + '" onclick="go(\'tile\',{x:' + x + ',y:' + y + '})" title="(' + x + '|' + y + ')">' +
+      rows += '<td class="' + cls + '" onclick="tileClick(' + x + ',' + y + ')" title="(' + x + '|' + y + ')">' +
         (ic ? '<span class="mi">' + ic + '</span>' : '') + (nm ? '<span class="mn">' + nm + '</span>' : '') + '</td>';
     }
     rows += '</tr>';
   }
   return '<div class="mapnav">' +
-    '<button class="sec" onclick="mapC.x-=5;render()">⬅</button>' +
-    '<button class="sec" onclick="mapC.y-=5;render()">⬆</button>' +
-    '<button class="sec" onclick="mapC.y+=5;render()">⬇</button>' +
-    '<button class="sec" onclick="mapC.x+=5;render()">➡</button>' +
-    '&nbsp; Ke koordinat: <input type="number" id="gx" value="' + mapC.x + '" style="width:50px"> | <input type="number" id="gy" value="' + mapC.y + '" style="width:50px">' +
+    'Ke koordinat: <input type="number" id="gx" value="' + mapC.x + '" style="width:50px"> | <input type="number" id="gy" value="' + mapC.y + '" style="width:50px">' +
     '<button class="sec" onclick="mapC.x=clamp(+document.getElementById(\'gx\').value,-MAP_R,MAP_R);mapC.y=clamp(+document.getElementById(\'gy\').value,-MAP_R,MAP_R);render()">OK</button>' +
     '<button class="sec" onclick="mapC.x=AV().x;mapC.y=AV().y;render()">🏰 Desaku</button></div>' +
-    '<table id="map"><tbody>' + rows + '</tbody></table>' +
-    '<p class="ctr muted" style="margin-top:6px">Klik petak untuk melihat detail. 🏘️ desa bot · 🏰 desa Anda · petak hijau tua = oasis</p>';
+    '<div id="mapwrap" onpointerdown="mapDown(event)"><table id="map"><tbody>' + rows + '</tbody></table></div>' +
+    '<p class="ctr muted" style="margin-top:6px">Geser peta dengan jari/mouse (seperti Maps). Ketuk petak untuk detail. 🏘️ desa bot · 🏰 desa Anda · oasis hijau tua</p>';
+}
+/* drag-to-pan peta (seperti Google Maps) */
+let mapDrag = null, mapMovedFlag = false;
+function mapDown(e) {
+  const td = document.querySelector('#map td');
+  if (!td) return;
+  mapDrag = {x:e.clientX, y:e.clientY, tw: td.offsetWidth || 40, th: td.offsetHeight || 40};
+  mapMovedFlag = false;
+  const w = document.getElementById('mapwrap'); if (w) w.classList.add('drag');
+  if (e.pointerId !== undefined && e.target.setPointerCapture) { try { e.target.setPointerCapture(e.pointerId); } catch (_) {} }
+}
+function mapMoveHandler(e) {
+  if (!mapDrag) return;
+  const dx = e.clientX - mapDrag.x, dy = e.clientY - mapDrag.y;
+  let moved = false;
+  if (Math.abs(dx) >= mapDrag.tw) { mapC.x = clamp(mapC.x - Math.round(dx / mapDrag.tw), -MAP_R, MAP_R); mapDrag.x = e.clientX; moved = true; }
+  if (Math.abs(dy) >= mapDrag.th) { mapC.y = clamp(mapC.y - Math.round(dy / mapDrag.th), -MAP_R, MAP_R); mapDrag.y = e.clientY; moved = true; }
+  if (moved) { mapMovedFlag = true; if (VIEW.name === 'map') render(); }
+}
+function mapUpHandler() {
+  if (!mapDrag) return;
+  mapDrag = null;
+  const w = document.getElementById('mapwrap'); if (w) w.classList.remove('drag');
+  setTimeout(() => { mapMovedFlag = false; }, 30);  // jeda agar klik setelah geser tidak membuka petak
+}
+function tileClick(x, y) {
+  if (mapMovedFlag) { mapMovedFlag = false; return; }
+  go('tile', {x, y});
 }
 
 /* ---------- detail petak ---------- */
@@ -289,19 +313,36 @@ function vReport() {
 /* ---------- statistik (bertab, diperbarui real time) ---------- */
 let statsTab = 'pop';
 function vStats() {
-  const tabs = [['pop', '👥 Penduduk'], ['att', '⚔️ Penyerang'], ['def', '🛡️ Bertahan'], ['raid', '💰 Perampok']];
-  const bar = '<div class="mapnav" style="justify-content:flex-start;flex-wrap:wrap;max-width:760px;margin:0 auto 10px">' +
-    tabs.map(([k, l]) => '<button class="' + (statsTab === k ? '' : 'sec') + '" onclick="statsTab=\'' + k + '\';render()">' + l + '</button>').join('') + '</div>';
+  const tabs = [['pop', '👥', 'Penduduk'], ['att', '⚔️', 'Penyerang'], ['def', '🛡️', 'Bertahan'], ['raid', '💰', 'Perampok']];
+  const bar = '<div class="statstabs">' +
+    tabs.map(([k, ic, t]) => '<button title="' + t + '" class="' + (statsTab === k ? '' : 'sec') + '" onclick="statsTab=\'' + k + '\';render()">' + ic + '</button>').join('') + '</div>';
   const body = statsTab === 'pop' ? popBoard() :
     statsTab === 'att' ? catBoard('A', 'att', '⚔️', 'Penyerang Terbanyak', 'prajurit musuh ditumbangkan saat menyerang') :
     statsTab === 'def' ? catBoard('D', 'def', '🛡️', 'Bertahan Terbanyak', 'penyerang ditumbangkan saat bertahan') :
     catBoard('R', 'raid', '💰', 'Perampok Terbanyak', 'total sumber daya yang dijarah');
   return bar + body;
 }
+// nama pemain/bot di papan — bisa diklik menuju desa/profil
+function statName(a) {
+  const label = TRIBE_DATA[a.tribe].icon + ' ' + esc(a.nm) + (a.tag ? ' <span class="tag">[' + a.tag + ']</span>' : '') + (a.me ? ' <b>(Anda)</b>' : '');
+  return '<a onclick="' + (a.me ? 'goMyProfile()' : 'showProfile(' + a.id + ')') + '">' + label + '</a>';
+}
+function goMyProfile() { go('dorf1'); }
+function showProfile(id) {
+  const b = S.bots.find(x => x.id === id);
+  if (!b) return;
+  const vrows = b.villages.map(v =>
+    '<tr><td>' + esc(v.vn) + '</td><td class="ctr">(' + v.x + '|' + v.y + ')</td><td class="rt">' + Math.round(v.pop) + '</td>' +
+    '<td class="ctr"><a onclick="closeModal();mapC={x:' + v.x + ',y:' + v.y + '};go(\'tile\',{x:' + v.x + ',y:' + v.y + '})">lihat »</a></td></tr>').join('');
+  openModal('<h2><span class="x" onclick="closeModal()">✖</span>' + TRIBE_DATA[b.tribe].icon + ' ' + esc(b.nm) + (b.tag ? ' <span style="font-size:11px">[' + b.tag + ']</span>' : '') + '</h2><div class="mbd">' +
+    '<p>Kerajaan: <b>' + TRIBE_DATA[b.tribe].nama + '</b> · ' + Math.round(botPop(b)) + ' penduduk · ' + b.villages.length + ' desa</p>' +
+    '<p class="tag">⚔️ ' + fmtN(b.stA || 0) + ' menyerang · 🛡️ ' + fmtN(b.stD || 0) + ' bertahan · 💰 ' + fmtN(b.stR || 0) + ' jarahan' + (b.wcomp ? ' · 🛕 Candi tk.' + Math.floor(b.wl) : '') + '</p><br>' +
+    '<div class="scrollx"><table class="t"><tr><th>Desa</th><th class="ctr">Koordinat</th><th class="rt">Pend.</th><th></th></tr>' + vrows + '</table></div></div>');
+}
 function popBoard() {
   const myPop = S.villages.reduce((a, v) => a + pop(v), 0);
   const all = S.bots.map(b => ({
-    nm: b.nm, tag: b.tag, tribe: b.tribe, me: false,
+    id: b.id, nm: b.nm, tag: b.tag, tribe: b.tribe, me: false,
     pop: botPop(b), nv: b.villages.length,
     grD: b.villages.reduce((a, v) => a + b.gr * S.speed * Math.max(0.05, 1 - v.pop / b.cap), 0),
   }));
@@ -312,29 +353,29 @@ function popBoard() {
   let rows = '';
   all.slice(0, 100).forEach((a, i) => {
     rows += '<tr class="' + (a.me ? 'hl' : '') + '"><td class="ctr">' + (i + 1) + '</td>' +
-      '<td>' + TRIBE_DATA[a.tribe].icon + ' ' + esc(a.nm) + (a.tag ? ' <span class="tag">[' + a.tag + ']</span>' : '') + (a.me ? ' <b>(Anda)</b>' : '') + '</td>' +
+      '<td>' + statName(a) + '</td>' +
       '<td class="ctr">' + a.nv + '</td>' +
       '<td class="rt">' + fmtN(a.pop) + '</td>' +
       '<td class="rt green">' + (a.grD === null ? '—' : '+' + a.grD.toFixed(1)) + '</td></tr>';
   });
-  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>👥 Peringkat Penduduk — posisi Anda: #' + myRank + ' dari ' + all.length + ' · total ' + fmtN(totV) + ' desa <span style="float:right;font-weight:normal;color:#a33">🔴 ' + new Date().toLocaleTimeString('id-ID') + '</span></h3><div class="bd">' +
+  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>👥 Peringkat Penduduk — posisi Anda: #' + myRank + ' dari ' + all.length + ' · total ' + fmtN(totV) + ' desa</h3><div class="bd">' +
     '<div class="scrollx"><table class="t"><tr><th class="ctr">#</th><th>Pemain</th><th class="ctr">Desa</th><th class="rt">Penduduk</th><th class="rt">±/hari</th></tr>' + rows + '</table></div>' +
-    '<p class="muted" style="margin-top:6px">⏱ Diperbarui <b>langsung</b> — bot tumbuh, berperang, dan mendirikan desa baru secara real time.</p></div></div>';
+    '<p class="muted" style="margin-top:6px">⏱ Diperbarui langsung. Ketuk nama untuk membuka profil/desa.</p></div></div>';
 }
 // catBoard: A = saat menyerang, D = saat bertahan, R = jarahan
 function catBoard(bKey, pKey, icon, title, ket) {
-  const arr = S.bots.map(b => ({nm:b.nm, tag:b.tag, tribe:b.tribe, val:Math.round(b['st' + bKey] || 0), me:false}));
+  const arr = S.bots.map(b => ({id:b.id, nm:b.nm, tag:b.tag, tribe:b.tribe, val:Math.round(b['st' + bKey] || 0), me:false}));
   arr.push({nm:S.name, tag:'', tribe:S.tribe, val:Math.round((S.stats && S.stats[pKey]) || 0), me:true});
   arr.sort((a, b) => b.val - a.val);
   const myR = arr.findIndex(a => a.me) + 1;
   let rows = '';
   arr.slice(0, 100).forEach((a, i) => {
     rows += '<tr class="' + (a.me ? 'hl' : '') + '"><td class="ctr">' + (i + 1) + '</td>' +
-      '<td>' + TRIBE_DATA[a.tribe].icon + ' ' + esc(a.nm) + (a.tag ? ' <span class="tag">[' + a.tag + ']</span>' : '') + (a.me ? ' <b>(Anda)</b>' : '') + '</td>' +
+      '<td>' + statName(a) + '</td>' +
       '<td class="rt">' + fmtN(a.val) + '</td></tr>';
   });
-  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>' + icon + ' ' + title + ' — posisi Anda: #' + myR + ' <span style="float:right;font-weight:normal;color:#a33">🔴 ' + new Date().toLocaleTimeString('id-ID') + '</span></h3><div class="bd">' +
-    '<p class="muted" style="margin-bottom:6px">Poin = ' + ket + '.</p>' +
+  return '<div class="box" style="max-width:760px;margin:0 auto"><h3>' + icon + ' ' + title + ' — posisi Anda: #' + myR + '</h3><div class="bd">' +
+    '<p class="muted" style="margin-bottom:6px">Poin = ' + ket + '. Ketuk nama untuk membuka profil/desa.</p>' +
     '<div class="scrollx"><table class="t"><tr><th class="ctr">#</th><th>Pemain</th><th class="rt">Poin</th></tr>' + rows + '</table></div></div></div>';
 }
 

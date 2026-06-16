@@ -277,7 +277,7 @@ function expSoft(base, lvl, softLvl, soft) {
 }
 function fieldProd(lvl) {
   if (lvl <= 10) return FIELD_PROD[lvl];
-  return Math.round(FIELD_PROD[10] + (lvl - 10) * 70);  // lanjut linear, masuk akal
+  return Math.round(FIELD_PROD[10] * Math.pow(1.15, lvl - 10));  // lanjut eksponensial (+15%/tk)
 }
 function storeCap(lvl) {
   if (lvl <= 20) return STORE_CAP[lvl];

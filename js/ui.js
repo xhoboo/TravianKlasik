@@ -60,12 +60,11 @@ function renderChrome() {
     (incoming ? '<span class="atkwarn">⚔️ ' + incoming + ' serangan masuk!</span>' : '') +
     '<span style="margin-left:auto" class="muted">' + esc(S.name) + ' — ' + TR().icon + ' ' + TR().nama + '</span>';
   const plusTags = [];
-  if (plusProdActive()) plusTags.push('🌾+25% ' + fmtT(S.plus.prod - S.last));
-  if (plusInstantActive()) plusTags.push('⚡ ' + fmtT(S.plus.instant - S.last));
-  if (plusTrainActive()) plusTags.push('🎯 ' + fmtT(S.plus.train - S.last));
-  $('hinfo').innerHTML = 'Kecepatan <b>' + S.speed + 'x</b> · Bot: <b>' + DIFFS[S.diff].nama + '</b>' +
-    (S.wonder ? ' · 🛕 Mode Wonder' : ' · ♾️ Bebas') +
-    (plusTags.length ? '<br><span style="color:#ffe9a8">⭐ ' + plusTags.join(' · ') + '</span>' : '');
+  if (plusProdActive()) plusTags.push('🌾');
+  if (plusInstantActive()) plusTags.push('⚡');
+  if (plusTrainActive()) plusTags.push('🎯');
+  $('hinfo').innerHTML = '<b>' + S.speed + 'x</b> ' + (S.wonder ? '🛕' : '♾️') +
+    (plusTags.length ? ' <span style="color:#ffe9a8">⭐' + plusTags.join('') + '</span>' : '');
   renderBar();
 }
 function renderBar() {
@@ -74,8 +73,8 @@ function renderBar() {
   const cell = (k, val, capv, perHr) => {
     const full = val >= capv - 1;
     return '<div class="rbox" title="' + RES_NAMA[k] + ': ' + (perHr >= 0 ? '+' : '') + fmtN(perHr) + '/jam">' +
-      '<span>' + RES_ICON[k] + ' <b class="' + (full ? 'full' : '') + '">' + fmtN(val) + '</b><span class="rcap">/' + fmtN(capv) + '</span></span>' +
-      '<span class="' + (perHr < 0 ? 'red' : 'green') + '" style="font-size:9px">' + (perHr >= 0 ? '+' : '') + Math.floor(perHr) + '/j</span></div>';
+      '<span>' + RES_ICON[k] + ' <b class="' + (full ? 'full' : '') + '">' + fmtN(val) + '</b></span>' +
+      '<span class="rcap">/' + fmtN(capv) + '</span></div>';
   };
   $('resbar').innerHTML =
     cell('wood', v.res.wood, cap.store, p.wood) +

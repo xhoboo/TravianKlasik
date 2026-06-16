@@ -59,5 +59,9 @@ function init() {
     clearTimeout(rsz);
     rsz = setTimeout(() => { if (S && VIEW.name === 'map') render(); }, 300);
   });
+  // geser peta (drag-to-pan) — listener global agar tetap jalan saat kursor keluar petak
+  window.addEventListener('pointermove', mapMoveHandler);
+  window.addEventListener('pointerup', mapUpHandler);
+  window.addEventListener('pointercancel', mapUpHandler);
 }
 init();
