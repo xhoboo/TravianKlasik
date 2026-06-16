@@ -50,15 +50,14 @@ function academyUI(v) {
 
 /* ---------- pasar ---------- */
 function marketUI(v) {
-  const lvl = bLvl(v, 'market');
-  const maxEx = lvl * 1000;
+  const maxEx = marketCap(v);
   let h = '<br><h3 style="margin:6px 0">Tukar Sumber Daya (NPC 1:1)</h3>' +
     '<div class="frow"><select id="ex_from">' + RES_KEYS.map(k => '<option value="' + k + '">' + RES_ICON[k] + ' ' + RES_NAMA[k] + '</option>').join('') + '</select> →' +
     '<select id="ex_to">' + RES_KEYS.map((k, i) => '<option value="' + k + '"' + (i === 1 ? ' selected' : '') + '>' + RES_ICON[k] + ' ' + RES_NAMA[k] + '</option>').join('') + '</select>' +
     '<input type="number" id="ex_n" value="100" min="1" max="' + maxEx + '"> <button onclick="doExchange()">Tukar</button></div>' +
-    '<p class="muted">Maksimum ' + fmtN(maxEx) + ' per penukaran (1.000 × tingkat pasar).</p>';
+    '<p class="muted">Daya angkut: ' + fmtN(maxEx) + ' (' + fmtN(marketPerLevel()) + ' × tingkat pasar). Kecepatan ' + S.speed + 'x.</p>';
   if (S.villages.length > 1) {
-    h += '<br><h3 style="margin:6px 0">Kirim ke Desa Sendiri</h3><div class="frow"><select id="tr_to">' +
+    h += '<br><h3 style="margin:6px 0">Kirim ke Desa Sendiri (maks. ' + fmtN(maxEx) + ')</h3><div class="frow"><select id="tr_to">' +
       S.villages.map((vv, i) => i === S.active ? '' : '<option value="' + i + '">' + esc(vv.name) + '</option>').join('') +
       '</select></div><div class="frow">' +
       RES_KEYS.map(k => RES_ICON[k] + '<input type="number" id="tr_' + k + '" value="0" min="0" style="width:60px">').join(' ') +
@@ -67,11 +66,11 @@ function marketUI(v) {
   return h;
 }
 function doExchange() {
-  const v = AV(), lvl = bLvl(v, 'market');
+  const v = AV();
   const from = document.getElementById('ex_from').value, to = document.getElementById('ex_to').value;
   let n = Math.floor(+document.getElementById('ex_n').value);
   if (from === to || n < 1) return;
-  n = Math.min(n, lvl * 1000, Math.floor(v.res[from]));
+  n = Math.min(n, marketCap(v), Math.floor(v.res[from]));
   if (n < 1) { toast('Sumber daya tidak cukup!'); return; }
   const cap = capOf(v);
   v.res[from] -= n;
@@ -86,6 +85,7 @@ function doSendRes() {
   let total = 0;
   RES_KEYS.forEach(k => { amounts[k] = Math.max(0, Math.floor(+document.getElementById('tr_' + k).value || 0)); total += amounts[k]; });
   if (!total) return;
+  if (total > marketCap(v)) { toast('Melebihi daya angkut pasar (' + fmtN(marketCap(v)) + ')!'); return; }
   for (const k of RES_KEYS) if (v.res[k] < amounts[k]) { toast('Sumber daya tidak cukup!'); return; }
   RES_KEYS.forEach(k => v.res[k] -= amounts[k]);
   const tv = S.villages[tvi];
@@ -313,13 +313,14 @@ function vReport() {
 /* ---------- statistik (bertab, diperbarui real time) ---------- */
 let statsTab = 'pop';
 function vStats() {
-  const tabs = [['pop', '👥', 'Penduduk'], ['att', '⚔️', 'Penyerang'], ['def', '🛡️', 'Bertahan'], ['raid', '💰', 'Perampok']];
+  const tabs = [['pop', '👥', 'Penduduk'], ['att', '⚔️', 'Penyerang'], ['def', '🛡️', 'Bertahan'], ['raid', '💰', 'Perampok'], ['razed', '💥', 'Penghancur Desa']];
   const bar = '<div class="statstabs">' +
     tabs.map(([k, ic, t]) => '<button title="' + t + '" class="' + (statsTab === k ? '' : 'sec') + '" onclick="statsTab=\'' + k + '\';render()">' + ic + '</button>').join('') + '</div>';
   const body = statsTab === 'pop' ? popBoard() :
     statsTab === 'att' ? catBoard('A', 'att', '⚔️', 'Penyerang Terbanyak', 'prajurit musuh ditumbangkan saat menyerang') :
     statsTab === 'def' ? catBoard('D', 'def', '🛡️', 'Bertahan Terbanyak', 'penyerang ditumbangkan saat bertahan') :
-    catBoard('R', 'raid', '💰', 'Perampok Terbanyak', 'total sumber daya yang dijarah');
+    statsTab === 'raid' ? catBoard('R', 'raid', '💰', 'Perampok Terbanyak', 'total sumber daya yang dijarah') :
+    catBoard('X', 'destroy', '💥', 'Penghancur Desa Terbanyak', 'jumlah desa musuh yang dihancurkan dengan meriam');
   return bar + body;
 }
 // nama pemain/bot di papan — bisa diklik menuju desa/profil
@@ -336,7 +337,7 @@ function showProfile(id) {
     '<td class="ctr"><a onclick="closeModal();mapC={x:' + v.x + ',y:' + v.y + '};go(\'tile\',{x:' + v.x + ',y:' + v.y + '})">lihat »</a></td></tr>').join('');
   openModal('<h2><span class="x" onclick="closeModal()">✖</span>' + TRIBE_DATA[b.tribe].icon + ' ' + esc(b.nm) + (b.tag ? ' <span style="font-size:11px">[' + b.tag + ']</span>' : '') + '</h2><div class="mbd">' +
     '<p>Kerajaan: <b>' + TRIBE_DATA[b.tribe].nama + '</b> · ' + Math.round(botPop(b)) + ' penduduk · ' + b.villages.length + ' desa</p>' +
-    '<p class="tag">⚔️ ' + fmtN(b.stA || 0) + ' menyerang · 🛡️ ' + fmtN(b.stD || 0) + ' bertahan · 💰 ' + fmtN(b.stR || 0) + ' jarahan' + (b.wcomp ? ' · 🛕 Candi tk.' + Math.floor(b.wl) : '') + '</p><br>' +
+    '<p class="tag">⚔️ ' + fmtN(b.stA || 0) + ' menyerang · 🛡️ ' + fmtN(b.stD || 0) + ' bertahan · 💰 ' + fmtN(b.stR || 0) + ' jarahan · 💥 ' + fmtN(b.stX || 0) + ' desa dihancurkan' + (b.wcomp ? ' · 🛕 Candi tk.' + Math.floor(b.wl) : '') + '</p><br>' +
     '<div class="scrollx"><table class="t"><tr><th>Desa</th><th class="ctr">Koordinat</th><th class="rt">Pend.</th><th></th></tr>' + vrows + '</table></div></div>');
 }
 function popBoard() {

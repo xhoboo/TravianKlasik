@@ -35,7 +35,7 @@ function render() {
   dirty = false;
 }
 function renderChrome() {
-  const incoming = S.movs.filter(m => m.kind === 'botraid').length;
+  const incoming = S.movs.filter(m => m.kind === 'botraid' || m.kind === 'botatk').length;
   const tabs = [
     ['dorf1','Sumber Daya'], ['dorf2','Pusat Desa'], ['map','Peta'], ['rally','Pasukan'],
     ['stats','Statistik'], ['reports','Laporan' + (S.unread ? '<span class="badge">' + S.unread + '</span>' : '')],
@@ -47,24 +47,25 @@ function renderChrome() {
     '<div class="tab ' + (VIEW.name === k || (VIEW.name==='report'&&k==='reports') || (VIEW.name==='tile'&&k==='map') ? 'act' : '') + '" onclick="go(\'' + k + '\')">' + label + '</div>'
   ).join('');
   const v = AV();
-  let sw = '';
+  // Nama desa, penduduk, & tipe (kerajaan) digabung ke header
+  let nameHtml;
   if (S.villages.length > 1) {
-    sw = '<select onchange="S.active=+this.value;save();render()">' +
-      S.villages.map((vv, i) => '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(vv.name) + ' (' + vv.x + '|' + vv.y + ')</option>').join('') + '</select>';
+    nameHtml = '<select onchange="S.active=+this.value;save();render()">' +
+      S.villages.map((vv, i) => '<option value="' + i + '"' + (i === S.active ? ' selected' : '') + '>' + esc(vv.name) + '</option>').join('') + '</select>';
   } else {
-    sw = '<b>' + esc(v.name) + '</b> (' + v.x + '|' + v.y + ')';
+    nameHtml = '<b>' + esc(v.name) + '</b>';
   }
-  $('subbar').innerHTML =
-    '<span>🏘️ Desa: ' + sw + '</span>' +
-    '<span>👥 Penduduk: <b>' + pop(v) + '</b></span>' +
-    (incoming ? '<span class="atkwarn">⚔️ ' + incoming + ' serangan masuk!</span>' : '') +
-    '<span style="margin-left:auto" class="muted">' + esc(S.name) + ' — ' + TR().icon + ' ' + TR().nama + '</span>';
   const plusTags = [];
   if (plusProdActive()) plusTags.push('🌾');
   if (plusInstantActive()) plusTags.push('⚡');
   if (plusTrainActive()) plusTags.push('🎯');
-  $('hinfo').innerHTML = '<b>' + S.speed + 'x</b> ' + (S.wonder ? '🛕' : '♾️') +
+  $('hinfo').innerHTML =
+    '🏘️ ' + nameHtml + ' · 👥 <b>' + pop(v) + '</b> · ' + TR().icon + ' ' + TR().nama +
+    ' · <b>' + S.speed + 'x</b> ' + (S.wonder ? '🛕' : '♾️') +
     (plusTags.length ? ' <span style="color:#ffe9a8">⭐' + plusTags.join('') + '</span>' : '');
+  // subbar kini hanya untuk peringatan serangan masuk
+  $('subbar').innerHTML = incoming ? '<span class="atkwarn">⚔️ ' + incoming + ' serangan/gempuran masuk!</span>' : '';
+  $('subbar').style.display = incoming ? '' : 'none';
   renderBar();
 }
 function renderBar() {
@@ -128,16 +129,16 @@ function sideMovs() {
   return h;
 }
 function mvLine(m) {
-  const KIND = {atk:'⚔️ Serangan ke', raid:'💰 Rampokan ke', scout:'🕵️ Pengintaian ke', return:'🏠 Kembali dari', settle:'🚚 Pemukim ke', trade:'⚖️ Kiriman ke', botraid:'🔻 SERANGAN MASUK dari'};
+  const KIND = {atk:'⚔️ Serangan ke', raid:'💰 Rampokan ke', scout:'🕵️ Pengintaian ke', return:'🏠 Kembali dari', settle:'🚚 Pemukim ke', trade:'⚖️ Kiriman ke', botraid:'🔻 SERANGAN MASUK dari', botatk:'💥 GEMPURAN MERIAM dari'};
   let who = '(' + m.x + '|' + m.y + ')';
-  if (m.kind === 'botraid') {
+  if (m.kind === 'botraid' || m.kind === 'botatk') {
     const b = S.bots.find(bb => bb.id === m.bot);
     const bv = b && (b.villages[m.bvi || 0] || b.villages[0]);
-    who = (bv ? esc(bv.vn) + ' ' : '') + '→ ' + esc(S.villages[m.vi].name);
+    who = (bv ? esc(bv.vn) + ' ' : '') + '→ ' + esc(S.villages[m.vi] ? S.villages[m.vi].name : '?');
   } else if (m.kind === 'trade') {
     who = esc(S.villages[m.tvi].name);
   }
-  return '<div class="mvrow ' + (m.kind === 'botraid' ? 'in' : '') + '">' + KIND[m.kind] + ' ' + who + ' — ' + cd(m.arrive) + '</div>';
+  return '<div class="mvrow ' + (m.kind === 'botraid' || m.kind === 'botatk' ? 'in' : '') + '">' + KIND[m.kind] + ' ' + who + ' — ' + cd(m.arrive) + '</div>';
 }
 
 /* ---------- dorf1: sumber daya ---------- */
@@ -216,6 +217,7 @@ function openSlot(i) {
   if (b === 'barracks' || b === 'stable' || b === 'workshop' || b === 'residence') special = trainUI(v, b);
   if (b === 'academy') special = academyUI(v);
   if (b === 'market') special = marketUI(v);
+  if (b === 'main') special = mainUI(v);
   if (b === 'rally') special = '<br><button class="sec" onclick="closeModal();go(\'rally\')">🚩 Buka Titik Kumpul</button>';
   openModal('<h2><span class="x" onclick="closeModal()">✖</span>' + def.icon + ' ' + def.nama + ' — tingkat ' + s.lvl + '</h2><div class="mbd">' +
     '<p class="muted">' + def.desc + '</p><br>' +
@@ -223,6 +225,24 @@ function openSlot(i) {
       '<p>Biaya tingkat ' + (s.lvl + 1) + ': ' + costHtml(v, cost) + '</p><p>Waktu: <b>' + fmtT(dur) + '</b>' + (plusInstantActive() ? ' <span style="color:#c80">⚡ bisa diselesaikan seketika di antrian</span>' : '') + '</p><br>' +
       '<button ' + (canAfford(v, cost) && queueFree(v, false) ? '' : 'disabled') + ' onclick="if(startBuild(AV(),\'slot\',' + i + '))(closeModal(),render())">⬆️ Tingkatkan ke ' + (s.lvl + 1) + '</button>') +
     special + '</div>');
+}
+// Pendopo Agung tk.20 — robohkan bangunan desa sendiri
+function mainUI(v) {
+  if (!canDemolish(v)) return '<br><p class="muted">🔨 Di tingkat 20, Pendopo Agung dapat <b>merobohkan bangunan</b> di desa sendiri (seperti Travian asli).</p>';
+  let opts = '';
+  v.slots.forEach((s, i) => { if (s && s.b !== 'main') opts += '<option value="' + i + '">' + B[s.b].nama + ' (tk.' + s.lvl + ')</option>'; });
+  if (v.wall > 0) opts += '<option value="wall">' + TR().wallName + ' (tk.' + v.wall + ')</option>';
+  return '<br><h3 style="margin:6px 0">🔨 Robohkan Bangunan</h3>' +
+    (opts ? '<div class="frow"><select id="dem_sel">' + opts + '</select> <button class="danger" onclick="doDemolish()">Robohkan 1 tingkat</button></div>' +
+      '<p class="muted">Menurunkan bangunan terpilih 1 tingkat (tanpa pengembalian sumber daya). Berguna mengosongkan lahan atau menurunkan konsumsi padi.</p>'
+      : '<p class="muted">Belum ada bangunan lain untuk dirobohkan.</p>');
+}
+function doDemolish() {
+  const v = AV(), sel = document.getElementById('dem_sel').value;
+  if (sel === 'wall') demolishWall(v); else demolish(v, +sel);
+  render();
+  const mi = v.slots.findIndex(s => s && s.b === 'main');
+  if (mi >= 0) openSlot(mi);
 }
 function openBuildList(i) {
   const v = AV();

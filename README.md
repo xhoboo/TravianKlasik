@@ -40,14 +40,19 @@ di browser tersebut (localStorage). Gunakan browser yang sama agar kemajuanmu te
   Pembakaran Bata, Peleburan Besi, & Lesung Padi bisa naik hingga **tingkat 100**
   (kurva harga tetap rumus Travian sampai batas asli, lalu melandai agar tercapai).
 - **🐴 Sendang Turangga** (khas Majapahit): mengurangi konsumsi padi pasukan berkuda.
+- **Pasar**: daya angkut menskala dengan kecepatan — **10.000 sumber daya per tingkat di mode 100x**.
+- **🔨 Robohkan bangunan**: Pendopo Agung tingkat 20 dapat merobohkan bangunan desa sendiri (seperti Travian).
+- **☄️ Meriam penghancur desa**: pemain & bot bisa saling menghancurkan bangunan musuh dengan Meriam.
+  Jika penduduk sebuah desa jatuh di bawah 10, desa itu **lenyap dari peta** dan petaknya bisa dibangun
+  desa baru. (Desa terakhir pemain dilindungi agar permainan tidak berakhir paksa.)
 - **🛕 Mode World Wonder**: bangun **Candi Agung** hingga tk.100 dan berlomba dengan bot —
   siapa pun (pemain/bot) yang menyelesaikannya **lebih dulu menang & dunia berakhir**,
   lalu bisa diulang. Atau pilih **mode bebas** tanpa Wonder dan tanpa batas waktu.
   Saat kamu sedang offline, progres Candi para bot **melambat 100×** agar kamu tetap bisa mengejar.
 - **👤 Hingga 2 akun** dengan dunia berbeda (mis. satu Wonder, satu bebas). Ganti lewat
   **Bantuan → Keluar / Pilih Akun**.
-- **Statistik real time bertab**: peringkat Penduduk, Penyerang, Bertahan, dan Perampok
-  Terbanyak — masing-masing tab tersendiri.
+- **Statistik real time bertab**: peringkat Penduduk, Penyerang, Bertahan, Perampok, dan
+  **Penghancur Desa Terbanyak** — masing-masing tab tersendiri (ikon, muat 1 baris di ponsel).
 - **Laporan**: 10 per halaman, maks. 100 (yang lama otomatis terhapus saat ada yang baru).
   Klik ⭐ untuk menyimpan laporan penting agar tidak ikut terhapus.
 - **Simulasi offline**: tutup game kapan saja — produksi, antrian, pertempuran, perlombaan

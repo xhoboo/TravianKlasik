@@ -41,7 +41,7 @@ function newVillage(name, x, y) {
 function newGame(name, tribe, speed, diff, mode, slot) {
   usedVNames = null;
   S = {
-    v:5, slot: slot || 0, name: name || 'Pemain', tribe, speed, diff,
+    v:6, slot: slot || 0, name: name || 'Pemain', tribe, speed, diff,
     wonder: mode === 'wonder', wonderLvl: 0, candiQ: null, ended: null,
     plus: {prod:0, instant:0, train:0},
     botRaids: true,
@@ -49,7 +49,7 @@ function newGame(name, tribe, speed, diff, mode, slot) {
     villages: [], active: 0,
     movs: [], reps: [], unread: 0, seq: 1,
     bots: [], oases: [],
-    stats: {att:0, def:0, raid:0},
+    stats: {att:0, def:0, raid:0, destroy:0},
   };
   S.villages.push(newVillage('Desa ' + S.name, 0, 0));
   AV().slots[0] = {b:'main', lvl:1};
@@ -182,7 +182,7 @@ function createBot(id, p, sk, usedNm, place) {
     defR: rnd(0.35, 0.95),
     offR: rnd(0.15, 0.6),
     villages: [],
-    stA: 0, stD: 0, stR: 0,       // statistik perang: serang / bertahan / jarahan
+    stA: 0, stD: 0, stR: 0, stX: 0,  // statistik: serang / bertahan / jarahan / desa dihancurkan
   };
   addBotVillage(bot, p.x, p.y, pop);
   // bot "lama" mulai dengan 2-3 desa, seperti server yang sudah berjalan
@@ -253,6 +253,11 @@ function botBattle(b, bv, tb, tv) {
     const loot = takeLoot(tv.res, carryOf(surv, b.tribe), 0);
     RES_KEYS.forEach(k => bv.res[k] = Math.min(vResCap(bv), bv.res[k] + loot[k]));
     b.stR = (b.stR || 0) + sumL(loot);
+    // sesekali bot kuat & agresif meratakan desa kecil musuh (saling menghancurkan, jarang)
+    if (tv.pop < 55 && b.aggr > 0.55 && Math.random() < 0.06) {
+      tv.pop = Math.max(0, tv.pop - 30);
+      if (tv.pop < 10) { b.stX = (b.stX || 0) + 1; razeBotVillage(tb, tv); }
+    }
   }
 }
 // Ekspansi bot: dirikan desa baru di dekat desa pertamanya (petak harus kosong)
@@ -349,6 +354,9 @@ function crannyOf(v) {
   v.slots.forEach(s => { if (s && s.b === 'cranny') c += CRANNY_CAP[s.lvl]; });
   return c * (S.tribe === 'gaul' ? 1.5 : 1);
 }
+// Daya angkut pasar per tingkat — skala dengan kecepatan (100x => 10.000 / tingkat)
+function marketPerLevel() { return Math.max(1000, S.speed * 100); }
+function marketCap(v) { return bLvl(v, 'market') * marketPerLevel(); }
 function bLvl(v, b) {
   let m = 0;
   v.slots.forEach(s => { if (s && s.b === b) m = Math.max(m, s.lvl); });
@@ -419,6 +427,24 @@ function finishNow(v, i) {
   applyBuild(v, q);
   v.bq.splice(i, 1);
   dirty = true; save();
+}
+// Pendopo Agung tk.20 dapat merobohkan bangunan desa sendiri (1 tingkat per klik, tanpa kembali biaya)
+const canDemolish = v => bLvl(v, 'main') >= 20;
+function demolish(v, idx) {
+  if (!canDemolish(v)) { toast('Pendopo Agung harus tingkat 20!'); return; }
+  const s = v.slots[idx];
+  if (!s || s.b === 'main') { toast('Pendopo Agung tidak bisa dirobohkan!'); return; }
+  const nm = B[s.b].nama;
+  s.lvl--;
+  if (s.lvl <= 0) v.slots[idx] = null;
+  dirty = true; save();
+  toast('🔨 ' + nm + (s.lvl > 0 ? ' diturunkan ke tk.' + s.lvl : ' dirobohkan habis'));
+}
+function demolishWall(v) {
+  if (!canDemolish(v) || v.wall <= 0) return;
+  v.wall--;
+  dirty = true; save();
+  toast('🔨 ' + TR().wallName + (v.wall > 0 ? ' diturunkan ke tk.' + v.wall : ' dirobohkan habis'));
 }
 function applyBuild(v, q) {
   if (q.kind === 'field') v.fields[q.idx].lvl = q.to;
@@ -591,6 +617,7 @@ function processMov(m) {
     return;
   }
   if (m.kind === 'botraid') { resolveBotRaid(m); return; }
+  if (m.kind === 'botatk') { resolveBotAtk(m); return; }
   // serangan pemain -> oasis
   const ot = TIDX[key(m.x, m.y)];
   if (ot && ot.k === 'oasis') { resolveOasisAtk(m, ot.ref); return; }
@@ -619,7 +646,7 @@ function processMov(m) {
   S.stats.att += sumL(res.dLoss);
   bot.stD = (bot.stD || 0) + sumL(res.aLoss);
   const surv = survivors(m.units, res.aLoss);
-  let loot = null, extra = [];
+  let loot = null, extra = [], razed = false;
   if (res.win) {
     loot = takeLoot(bv.res, carryOf(surv, S.tribe), 0);
     S.stats.raid += sumL(loot);
@@ -630,18 +657,25 @@ function processMov(m) {
         if (down) { bv.wall -= down; extra.push('🐏 Pendobrak merobohkan ' + TRIBE_DATA[bot.tribe].wallName + ' sebanyak ' + down + ' tingkat.'); }
       }
       if (catas) {
-        const dmg = Math.min(5, Math.floor(catas / 5) + 1);
-        bv.pop = Math.max(20, bv.pop - dmg * 8);
-        extra.push('☄️ Katapel menghancurkan bangunan (penduduk −' + dmg * 8 + ').');
+        const before = Math.round(bv.pop);
+        const dmg = Math.min(bv.pop, catas * 5);   // tiap meriam menghancurkan bangunan ≈5 penduduk
+        bv.pop = Math.max(0, bv.pop - dmg);
+        extra.push('☄️ Meriam menghancurkan bangunan ' + esc(bv.vn) + ' (penduduk −' + Math.round(Math.min(before, dmg)) + ').');
+        if (bv.pop < 10) {
+          extra.push('💥 Desa ' + esc(bv.vn) + ' hancur total dan lenyap dari peta!');
+          S.stats.destroy = (S.stats.destroy || 0) + 1;
+          razed = true;
+        }
       }
     }
   }
   addReport({type:'battle', win:res.win,
-    title:(res.win ? '⚔️ Kemenangan' : '💀 Kekalahan') + (m.kind==='raid' ? ' (rampokan)' : '') + ' di ' + esc(bv.vn) + ' (' + m.x + '|' + m.y + ')',
+    title:(razed ? '💥 Desa ' + esc(bv.vn) + ' DIHANCURKAN!' : (res.win ? '⚔️ Kemenangan' : '💀 Kekalahan') + (m.kind==='raid' ? ' (rampokan)' : '') + ' di ' + esc(bv.vn)) + ' (' + m.x + '|' + m.y + ')',
     att:{nm:S.name, vn:v.name, tribe:S.tribe, units:{...m.units}, loss:res.aLoss},
     def:{nm:bot.nm, vn:bv.vn, tribe:bot.tribe, loss:res.dLoss, wall:bv.wall},
     defBefore: addBack(bv.tr, res.dLoss),
     loot, extra, pow:[res.aPow, res.dPow]});
+  if (razed) razeBotVillage(bot, bv);
   pushReturn(m, surv, loot);
 }
 function addBack(after, losses) {
@@ -675,6 +709,89 @@ function resolveBotRaid(m) {
     defBefore: addBack(v.troops, res.dLoss),
     loot, extra:[], pow:[res.aPow, res.dPow]});
   if (liveMode) toast(res.win ? '🔥 Desa Anda dirampok ' + esc(bot.nm) + '!' : '🛡️ Serangan ' + esc(bot.nm) + ' berhasil ditahan!');
+}
+
+/* ---------- penghancuran desa (meriam) ---------- */
+// Hapus desa bot dari peta; jika bot tak punya desa lagi, bot lenyap
+function razeBotVillage(bot, bv) {
+  const i = bot.villages.indexOf(bv);
+  if (i < 0) return;
+  bot.villages.splice(i, 1);
+  S.movs = S.movs.filter(m => !((m.kind === 'botraid' || m.kind === 'botatk') && m.bot === bot.id));
+  if (bot.villages.length === 0) S.bots = S.bots.filter(x => x !== bot);
+  buildTIDX(); dirty = true;
+}
+// Hapus desa pemain (kecuali desa terakhir); rapikan indeks pergerakan, oasis, & desa aktif
+function razePlayerVillage(vi) {
+  if (S.villages.length <= 1) return false;
+  S.villages.splice(vi, 1);
+  S.movs = S.movs.filter(m => m.vi !== vi && m.tvi !== vi);
+  S.movs.forEach(m => {
+    if (m.vi !== undefined && m.vi > vi) m.vi--;
+    if (m.tvi !== undefined && m.tvi > vi) m.tvi--;
+  });
+  S.oases.forEach(o => { if (o.owner === vi) o.owner = -1; else if (o.owner > vi) o.owner--; });
+  if (S.active > vi) S.active--;
+  if (S.active >= S.villages.length) S.active = S.villages.length - 1;
+  buildTIDX(); dirty = true;
+  return true;
+}
+// Meriam menghancurkan bangunan/ladang/tembok desa pemain (acak); kembalikan jumlah yang rusak
+function catapultPlayerVillage(v, catas, keepMain) {
+  const drop = 1 + Math.floor(catas / 12);
+  const hits = Math.min(10, Math.floor(Math.sqrt(catas)) + 1);
+  const pool = [];
+  v.slots.forEach((s, i) => { if (s && s.lvl > 0 && !(keepMain && s.b === 'main')) pool.push(() => { s.lvl -= drop; if (s.lvl <= 0) v.slots[i] = null; }); });
+  v.fields.forEach(f => { if (f.lvl > 0) pool.push(() => { f.lvl = Math.max(0, f.lvl - drop); }); });
+  if (v.wall > 0) pool.push(() => { v.wall = Math.max(0, v.wall - drop); });
+  let destroyed = 0;
+  for (let h = 0; h < hits && pool.length; h++) {
+    const idx = ri(0, pool.length - 1);
+    pool[idx](); pool.splice(idx, 1); destroyed++;
+  }
+  return destroyed;
+}
+// Gempuran bot ke pemain (serangan penuh + meriam) — bisa menghancurkan bangunan & meratakan desa
+function resolveBotAtk(m) {
+  const bot = S.bots.find(b => b.id === m.bot);
+  const v = S.villages[m.vi];
+  if (!bot || !v) return;
+  const bv = bot.villages[m.bvi || 0] || bot.villages[0];
+  if (!liveMode) offlineLog.raidsIn++;
+  const dBonus = 1 + 0.015 * bLvl(v, 'smithy');
+  const res = battle(m.units, bot.tribe, v.troops, S.tribe, v.wall, false, 1, dBonus);  // serangan penuh
+  for (const u in res.dLoss) { v.troops[u] -= res.dLoss[u]; if (v.troops[u] <= 0) delete v.troops[u]; }
+  if (bv) for (const u in res.aLoss) { bv.tr[u] = Math.max(0, (bv.tr[u] || 0) - res.aLoss[u]); }
+  S.stats.def += sumL(res.aLoss);
+  bot.stA = (bot.stA || 0) + sumL(res.dLoss);
+  const surv = survivors(m.units, res.aLoss);
+  let loot = null, extra = [], razed = false;
+  if (res.win) {
+    loot = takeLoot(v.res, carryOf(surv, bot.tribe), crannyOf(v));
+    if (bv) RES_KEYS.forEach(k => bv.res[k] = Math.min(vResCap(bv), bv.res[k] + loot[k]));
+    bot.stR = (bot.stR || 0) + sumL(loot);
+    const catas = m.units[U_CATA] || 0;
+    if (catas) {
+      const last = S.villages.length <= 1;
+      const dn = catapultPlayerVillage(v, catas, last);
+      extra.push('☄️ Meriam ' + esc(bot.nm) + ' menghancurkan ' + dn + ' bangunan di ' + esc(v.name) + '!');
+      if (pop(v) < 10 && !last) {
+        extra.push('💥 Desa ' + esc(v.name) + ' Anda hancur total dan lenyap dari peta!');
+        bot.stX = (bot.stX || 0) + 1;
+        razed = true;
+      }
+    }
+  }
+  addReport({type:'battle', win:!res.win, defending:true,
+    title:(razed ? '💥 Desa ' + esc(v.name) + ' Anda DIHANCURKAN oleh ' + esc(bot.nm) + '!' :
+      (res.win ? '🔥 Gempuran ' + esc(bot.nm) + ' menghantam ' + esc(v.name) : '🛡️ Gempuran ditahan dari ' + esc(bot.nm))),
+    att:{nm:bot.nm, vn:bv ? bv.vn : '', tribe:bot.tribe, units:{...m.units}, loss:res.aLoss},
+    def:{nm:S.name, vn:v.name, tribe:S.tribe, loss:res.dLoss},
+    defBefore: addBack(v.troops, res.dLoss),
+    loot, extra, pow:[res.aPow, res.dPow]});
+  if (liveMode) toast(razed ? '💥 Desa ' + esc(v.name) + ' Anda dihancurkan ' + esc(bot.nm) + '!' :
+    res.win ? '🔥 ' + esc(v.name) + ' digempur ' + esc(bot.nm) + '!' : '🛡️ Gempuran ' + esc(bot.nm) + ' ditahan!');
+  if (razed) razePlayerVillage(S.villages.indexOf(v));
 }
 
 // Penaklukan oasis (pasukan alam liar = kekuatan pertahanan datar)
@@ -760,6 +877,26 @@ function botTick(dtSec, tNow) {
         if (tv.pop < 80 || dist(bv.x, bv.y, tv.x, tv.y) > 15) continue;
         botBattle(b, bv, tb, tv);
         break;
+      }
+    }
+    // gempuran bot ke pemain (serangan penuh + meriam) — sangat jarang, hanya bot besar & agresif
+    if (S.botRaids && !protect && total >= 450 && Math.random() < b.aggr * b.aggr * 0.02 * d.raidCh * dtH) {
+      let av = null, avi = 0, pvi = 0, bd = 1e9;
+      b.villages.forEach((vv, bi) => S.villages.forEach((pv, pi) => {
+        const dd = dist(vv.x, vv.y, pv.x, pv.y);
+        if (dd < bd) { bd = dd; av = vv; avi = bi; pvi = pi; }
+      }));
+      if (av && bd <= 28 && av.pop >= 200) {
+        const mix = BOT_MIX[b.tribe];
+        const army = {};
+        army[mix.off[0]] = Math.min(av.tr[mix.off[0]] || 0, Math.round(av.pop * 0.35));
+        if ((army[mix.off[0]] || 0) >= 10) {
+          for (const u in army) av.tr[u] -= army[u];
+          army[U_CATA] = clamp(Math.round(av.pop / 45), 1, 18);   // meriam (sintetis, tak dipotong stok)
+          const pv = S.villages[pvi];
+          S.movs.push({id:S.seq++, kind:'botatk', bot:b.id, bvi:avi, vi:pvi, x:pv.x, y:pv.y, units:army, depart:tNow, arrive:tNow + travelSec(bd, 3)});
+          dirty = true;
+        }
       }
     }
     // rampokan ke pemain (jarang & kecil = difficulty rendah)
@@ -927,7 +1064,15 @@ function migrateV5() {
   if (S.reps.length > 100) S.reps.length = 100;
   S.v = 5;
 }
-function applyMigrations() { usedVNames = null; migrate(); migrateV3(); migrateV4(); migrateV5(); }
+// v6: penghancuran desa (meriam) + statistik penghancur
+function migrateV6() {
+  if (S.v >= 6) return;
+  if (!S.stats) S.stats = {att:0, def:0, raid:0};
+  if (S.stats.destroy === undefined) S.stats.destroy = 0;
+  S.bots.forEach(b => { if (b.stX === undefined) b.stX = 0; });
+  S.v = 6;
+}
+function applyMigrations() { usedVNames = null; migrate(); migrateV3(); migrateV4(); migrateV5(); migrateV6(); }
 
 /* ---------- multi-akun (maks. 2) ---------- */
 const OLD_KEY = 'travianKlasikOffline';
